@@ -43,6 +43,15 @@ jobs:
           duplicate = client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": csrf})
           assert duplicate.status_code == 409
           with app.db_connection() as conn:
+              for day_number in range(2, 8):
+                  conn.execute(
+                      "INSERT INTO winter_calendar_claims (player_id, day_number, reward, claimed_at) VALUES (?, ?, ?, 0)",
+                      (player_id, day_number, 10 + (day_number - 1) * 2),
+                  )
+          winter_quest = client.post("/api/winter/quest/claim", json={"id": "calendar_7"}, headers={"X-CSRF-Token": csrf})
+          assert winter_quest.status_code == 200, winter_quest.get_data(as_text=True)
+          assert winter_quest.get_json()["reward"] == 25
+          with app.db_connection() as conn:
               conn.execute(
                   "UPDATE players SET coins = 1234, total_earned = 1234, total_taps = 5000, tap_level = 2 WHERE id = ?",
                   (player_id,),
@@ -59,7 +68,7 @@ jobs:
           assert after["era"]["current"] == 2
           assert after["coins"] == 0
           assert after["total_taps"] == 5000
-          assert after["winter_event"]["tickets"] == 10
+          assert after["winter_event"]["tickets"] == 35
           assert after["profile"]["public_code"]
           profile_response = client.get("/api/profile/" + after["profile"]["public_code"])
           assert profile_response.status_code == 200
