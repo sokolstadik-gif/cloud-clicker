@@ -93,14 +93,17 @@ function renderProfile(state) {
   $('profileAvatar').value = profile.avatar;
   $('profileFrame').value = profile.frame;
   const cosmeticSelect = $('profileCosmetic');
-  if (cosmeticSelect.options.length === 1) {
-    (profile.cosmetics || []).forEach((item) => {
-      const option = document.createElement('option');
-      option.value = item.code;
-      option.textContent = `${item.icon} ${item.title}`;
-      cosmeticSelect.append(option);
-    });
-  }
+  cosmeticSelect.replaceChildren();
+  const noCosmetic = document.createElement('option');
+  noCosmetic.value = '';
+  noCosmetic.textContent = 'Без украшения';
+  cosmeticSelect.append(noCosmetic);
+  (profile.cosmetics || []).forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.code;
+    option.textContent = `${item.icon} ${item.title}`;
+    cosmeticSelect.append(option);
+  });
   cosmeticSelect.value = profile.equipped_cosmetic || '';
   const equipped = (profile.cosmetics || []).find(item => item.code === profile.equipped_cosmetic);
   $('equippedCosmetic').textContent = equipped?.icon || '';
