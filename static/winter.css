@@ -95,3 +95,34 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   body::before { animation: none; }
 }
+
+
+/* Era progression and archive */
+.era-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 20px 22px;
+  margin: 0 0 18px;
+  border-color: rgba(155, 213, 247, .24);
+  background:
+    radial-gradient(circle at 90% 0%, rgba(112, 188, 235, .16), transparent 38%),
+    linear-gradient(135deg, rgba(19, 39, 57, .96), rgba(12, 20, 31, .98));
+}
+.era-panel-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.era-panel-top h2 { margin: 4px 0; color: #e5f5ff; font-size: 19px; }
+.era-panel-top p:not(.eyebrow) { margin: 0; color: #a6c4d9; font-size: 11px; }
+.era-number { padding: 7px 10px; border: 1px solid rgba(164, 220, 250, .25); border-radius: 99px; color: #c6eaff; font-size: 9px; font-weight: 900; letter-spacing: 1px; white-space: nowrap; }
+.era-progress-copy { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 17px 0 8px; color: #9eb5c8; font-size: 10px; }
+.era-progress-copy b { color: #d7efff; white-space: nowrap; }
+.era-progress-track { height: 8px; overflow: hidden; border-radius: 99px; background: #1d2d3c; }
+.era-progress-track > div { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #5ba8d5, #c4ecff); transition: width .3s ease; }
+.era-transition { min-height: 38px; margin-top: 13px; padding: 0 16px; }
+.era-transition[hidden] { display: none; }
+.era-archive { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.era-archive-item { padding: 6px 9px; border: 1px solid rgba(152, 197, 224, .14); border-radius: 9px; color: #8fa9bd; font-size: 9px; }
+@media (max-width: 520px) {
+  .era-panel { padding: 16px; }
+  .era-panel-top h2 { font-size: 16px; }
+  .era-progress-copy { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .era-transition { width: 100%; }
+}
