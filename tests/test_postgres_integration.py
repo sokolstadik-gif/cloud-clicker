@@ -151,7 +151,7 @@ class PostgreSQLIntegrationTest(unittest.TestCase):
         sender_telegram_id = str(7_000_000_000 + uuid.uuid4().int % 1_000_000_000)
         receiver_telegram_id = str(6_000_000_000 + uuid.uuid4().int % 1_000_000_000)
         recipient_code = "friend-" + uuid.uuid4().hex
-        day_start = game.datetime.datetime.now(game.datetime.timezone.utc).replace(
+        day_start = game.datetime.now(game.timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         ).timestamp()
         with game.db_connection() as conn:
@@ -183,14 +183,6 @@ class PostgreSQLIntegrationTest(unittest.TestCase):
 
         clients = [game.app.test_client(), game.app.test_client()]
         csrf_tokens = []
-        for client in clients:
-            response = client.get(
-                "/api/state",
-                headers={"X-Telegram-Init-Data": sender_telegram_id},
-            )
-            self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
-            with client.session_transaction() as session:
-                csrf_tokens.append(session["csrf_token"])
 
         def fake_validate(raw):
             return {
@@ -207,6 +199,14 @@ class PostgreSQLIntegrationTest(unittest.TestCase):
             ).status_code
 
         with patch.object(game, "validate_telegram_init_data", side_effect=fake_validate):
+            for client in clients:
+                response = client.get(
+                    "/api/state",
+                    headers={"X-Telegram-Init-Data": sender_telegram_id},
+                )
+                self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+                with client.session_transaction() as session:
+                    csrf_tokens.append(session["csrf_token"])
             with ThreadPoolExecutor(max_workers=2) as pool:
                 statuses = list(pool.map(send, zip(clients, csrf_tokens)))
 
