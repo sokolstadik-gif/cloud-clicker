@@ -886,11 +886,28 @@ def gift_state(conn: sqlite3.Connection, player_id: str, era: int) -> dict[str, 
             "can_activate": item["kind"] == "boost" and item["status"] == "inventory",
         })
     active = active_gift_effects(conn, player_id, now)
+    sent_items = conn.execute(
+        """SELECT g.*, p.nickname AS receiver_nickname
+           FROM player_gifts g JOIN players p ON p.id = g.receiver_id
+           WHERE g.sender_id = ? ORDER BY g.created_at DESC LIMIT 40""",
+        (player_id,),
+    ).fetchall()
+    sent_history = []
+    for item in sent_items:
+        catalog = GIFT_CATALOG.get(str(item["gift_code"]), {})
+        sent_history.append({
+            "title": catalog.get("title", str(item["gift_code"])),
+            "icon": catalog.get("icon", "🎁"),
+            "receiver": str(item["receiver_nickname"]),
+            "status": str(item["status"]),
+            "created_at": int(float(item["created_at"])),
+        })
     return {
         "daily_limit": limit, "sent_today": int(sent_today["total"] or 0),
         "remaining_today": max(0, limit - int(sent_today["total"] or 0)),
         "active_boosts": active["active_count"], "max_active_boosts": 2,
         "effects": active["effects"], "inventory": inventory,
+        "sent_history": sent_history,
         "catalog": [
             {"code": code, **{key: value for key, value in item.items() if key not in {"effect", "duration"}}}
             for code, item in GIFT_CATALOG.items()
