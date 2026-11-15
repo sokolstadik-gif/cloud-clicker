@@ -26,16 +26,16 @@ The proposed four-times stronger starting upgrades for each new era need a concr
 
 ## Gifts and boosts
 - Daily sent-gift limits by current era: era 1 = 5, era 2 = 10, era 3 = 15, era 4 = 20.
-- At most two gift-granted boosts may be active simultaneously. A slot becomes available when an active boost expires.
+- At most two gift-granted boosts may be active simultaneously. A slot becomes available when an active boost expires; a gift boost cannot be activated while both slots are occupied.
 - Gifts are special items only, never direct currency transfers. They may be decorative or grant a manually activated boost.
 - Enforce limits, ownership, activation, expiry, and anti-abuse checks server-side.
 
 ## Winter event
 - A 31-day daily login calendar. Each day has a distinct ticket reward.
-- Claim requires a login on that calendar day; missed days expire and cannot be reclaimed.
-- Use server-authoritative dates/timezone boundaries; do not trust device clock.
+- Claim requires a login on that calendar day; missed days expire and cannot be reclaimed. Calendar days use UTC/server time, and each day has one unique claim.
+- Use server-authoritative UTC dates/timezone boundaries; do not trust device clock.
 - Tickets are a separate event currency and can be spent on winter gifts and cloud accessories.
-- Ticket reward values beyond the first two days remain to be specified. Confirmed examples: day 1 = 10 tickets; day 2 = 12 tickets.
+- Ticket rewards increase by 2 each day: day 1 = 10, day 2 = 12, continuing through day 31 = 70 tickets (1,240 tickets total if all days are claimed).
 - Include winter quests, a festive ticket shop, era-themed exclusive cosmetics, and a legendary final cloud reward.
 - No community Christmas tree or collective tree progression.
 
