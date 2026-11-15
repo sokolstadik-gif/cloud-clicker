@@ -304,6 +304,16 @@
           <article class="stat-tile panel"><span>Энергия</span><strong id="statsEnergy">100 / 100</strong><small id="statsRegen">Восстановление 2 ед./сек.</small></article>
           <article class="stat-tile panel"><span>Место в рейтинге</span><strong id="statsRank">—</strong><small>среди игроков сайта</small></article>
         </div>
+        <section class="profile-editor panel">
+          <div class="section-title-row"><div><p class="eyebrow">ТВОЯ ПУБЛИЧНАЯ СТРАНИЦА</p><h2>Профиль игрока</h2></div><span class="level-pill">Публичный</span></div>
+          <div class="profile-edit-grid">
+            <label>Аватар<select id="profileAvatar"><option>☁️</option><option>🎅</option><option>❄️</option><option>🌌</option><option>👑</option><option>✨</option></select></label>
+            <label>Рамка<select id="profileFrame"><option value="cloud">Облачная</option><option value="winter">Зимняя</option><option value="cosmic">Космическая</option><option value="royal">Королевская</option><option value="divine">Божественная</option></select></label>
+          </div>
+          <div class="referral-link-row"><input id="publicProfileLink" type="text" readonly aria-label="Ссылка на публичный профиль"><button class="secondary-button" id="copyProfileBtn" type="button">Копировать</button></div>
+          <button class="primary-button" id="saveProfileBtn" type="button">Сохранить оформление</button>
+          <p class="privacy-note">Публично показываются ник, эпоха, достижения и коллекция. Telegram ID и личные данные не публикуются.</p>
+        </section>
         <section class="referral-panel panel">
           <div class="section-title-row"><div><p class="eyebrow">ПРИГЛАШАЙ ДРУЗЕЙ</p><h2>Реферальная программа</h2></div><span class="level-pill">+1 000 за друга</span></div>
           <p class="privacy-note">Поделись личной ссылкой. Награда начислится, когда приглашённый игрок войдёт через Telegram и сделает 100 нажатий.</p>
@@ -359,6 +369,18 @@
       <p class="creator-handle">@deIaywork</p>
       <a class="promo-button creator-link" href="https://t.me/deIaywork" target="_blank" rel="noopener noreferrer">Написать в Telegram ↗</a>
       <p class="creator-note">Спасибо, что играешь в Cloud Clicker!</p>
+    </form>
+  </dialog>
+
+  <dialog class="creator-dialog profile-dialog" id="profileDialog" aria-labelledby="profileDialogTitle">
+    <form method="dialog" class="creator-dialog-inner">
+      <button class="dialog-close" aria-label="Закрыть" value="close">×</button>
+      <div class="creator-avatar" id="profileDialogAvatar">☁️</div>
+      <p class="eyebrow">ПРОФИЛЬ ИГРОКА</p>
+      <h2 id="profileDialogTitle">Cloud</h2>
+      <p class="creator-handle" id="profileDialogEra">Эпоха 1</p>
+      <div class="profile-public-stats" id="profileDialogStats"></div>
+      <div class="profile-public-collection" id="profileDialogCollection"></div>
     </form>
   </dialog>
 
