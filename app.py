@@ -23,7 +23,7 @@ from typing import Any
 from flask import Flask, g, jsonify, render_template, request, session
 
 from new_year_rules import (
-    ERA_NAMES, era_unlock_progress, winter_calendar_status, winter_ticket_reward,
+    ERA_NAMES, era_power_multiplier, era_unlock_progress, winter_calendar_status, winter_ticket_reward,
 )
 from dotenv import load_dotenv
 
@@ -634,11 +634,13 @@ def energy_regen(row: sqlite3.Row) -> float:
 
 
 def tap_power(row: sqlite3.Row) -> int:
-    return 1 + int(row["tap_level"]) + int(row["network_level"]) * 2
+    multiplier = era_power_multiplier(int(row["active_era"]))
+    return multiplier * (1 + int(row["tap_level"]) + int(row["network_level"]) * 2)
 
 
 def passive_income(row: sqlite3.Row) -> int:
-    return int(row["auto_level"]) + int(row["lab_level"]) * 2 + int(row["radar_level"]) * 5
+    multiplier = era_power_multiplier(int(row["active_era"]))
+    return multiplier * (int(row["auto_level"]) + int(row["lab_level"]) * 2 + int(row["radar_level"]) * 5)
 
 
 def upgrade_cost(upgrade_id: str, level: int) -> int:
