@@ -17,7 +17,7 @@ Release only after implementation, migration checks, automated tests, and Telegr
 
 The player manually confirms each transition. Show requirements and progress in a dedicated “Эпохи” tab. Taps, purchases, and earned currency must be tracked per era on the server. Never trust client-supplied progress.
 
-The proposed four-times stronger starting upgrades for each new era need a concrete balancing formula before implementation; do not assume the display-only values (+5, +20, +80) are final.
+Era power uses a transparent multiplier of 4^(era - 1): era 1 = 1x, era 2 = 4x, era 3 = 16x, era 4 = 64x. This multiplier applies to tap power and passive-income upgrade output, so each era starts four times stronger than the previous one. Energy capacity and regeneration remain separate progression stats.
 
 ## Winter presentation
 - Apply winter/holiday visual styling consistently to every page without erasing each era's distinct identity.
