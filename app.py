@@ -1712,7 +1712,10 @@ def public_profile(public_code: str):
             if item["unlocked"]
         ]
         cosmetics = [
-            item["item_code"] for item in conn.execute(
+            {"code": item["item_code"],
+             "title": WINTER_SHOP.get(item["item_code"], {}).get("title", item["item_code"]),
+             "icon": WINTER_SHOP.get(item["item_code"], {}).get("icon", "🎨")}
+            for item in conn.execute(
                 "SELECT item_code FROM winter_cosmetics WHERE player_id = ? ORDER BY purchased_at",
                 (profile["id"],),
             ).fetchall()
@@ -1729,7 +1732,10 @@ def public_profile(public_code: str):
             ).fetchall()
         ]
     return jsonify({"ok": True, "profile": {
-        "nickname": profile["nickname"], "avatar": profile["avatar"], "frame": profile["frame"], "equipped_cosmetic": profile["equipped_cosmetic"],
+        "nickname": profile["nickname"], "avatar": profile["avatar"], "frame": profile["frame"],
+        "equipped_cosmetic": profile["equipped_cosmetic"],
+        "equipped_cosmetic_title": WINTER_SHOP.get(profile["equipped_cosmetic"], {}).get("title", ""),
+        "equipped_cosmetic_icon": WINTER_SHOP.get(profile["equipped_cosmetic"], {}).get("icon", ""),
         "era": int(profile["active_era"]), "total_earned": int(profile["total_earned"]),
         "total_taps": int(profile["total_taps"]), "achievements": achievements,
         "cosmetics": cosmetics, "gifts": gifts,
