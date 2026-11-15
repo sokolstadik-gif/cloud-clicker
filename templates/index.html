@@ -32,6 +32,7 @@
       <button class="tab-button" type="button" data-tab="cipher" aria-selected="false">🔐 Шифр</button>
       <button class="tab-button" type="button" data-tab="tasks" aria-selected="false">📋 Задания</button>
       <button class="tab-button" type="button" data-tab="winter" aria-selected="false">❄ Новый год</button>
+      <button class="tab-button" type="button" data-tab="gifts" aria-selected="false">🎁 Подарки</button>
       <button class="tab-button" type="button" data-tab="boosts" aria-selected="false">⚡ Бусты</button>
       <button class="tab-button" type="button" data-tab="records" aria-selected="false">🏆 Рекорды</button>
       <button class="tab-button" type="button" data-tab="rewards" aria-selected="false">🎁 Награды</button>
@@ -145,6 +146,34 @@
         <div class="upgrade-grid" id="upgradeList">
           <div class="loading-card">Загружаем улучшения…</div>
         </div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-gifts" data-panel="gifts" hidden>
+      <section class="section-block page-section">
+        <div class="section-title-row">
+          <div><p class="eyebrow">ДРУЗЬЯ И ПОДАРКИ</p><h1>Подарки облакам</h1></div>
+          <span class="level-pill" id="giftDailyLimit">0 / 5 сегодня</span>
+        </div>
+        <div class="challenge-intro panel">
+          <div class="challenge-icon">🎁</div>
+          <div><b>Делись праздничным настроением</b><p>Введи реферальный код друга из его личной ссылки. Подарки не переводят валюту. Лимит отправки зависит от эпохи.</p></div>
+        </div>
+        <form class="gift-send-panel panel" id="giftSendForm">
+          <label for="giftRecipientCode">Код друга</label>
+          <input id="giftRecipientCode" type="text" maxlength="64" placeholder="Код из ссылки ?ref=..." required>
+          <label for="giftSelect">Выбери подарок</label>
+          <select id="giftSelect" required></select>
+          <label for="giftNote">Поздравление (необязательно)</label>
+          <input id="giftNote" type="text" maxlength="120" placeholder="С праздником!">
+          <button class="primary-button" id="giftSendBtn" type="submit">Отправить подарок</button>
+          <p class="privacy-note">Отправлять подарки можно только игрокам, открывшим игру через Telegram. Декор попадёт в коллекцию, буст можно активировать вручную.</p>
+        </form>
+        <div class="section-title-row" style="margin-top:24px">
+          <div><p class="eyebrow">ТВОЯ КОЛЛЕКЦИЯ</p><h2>Полученные подарки</h2></div>
+          <span class="section-caption" id="giftActiveCount">Активно 0 / 2 буста</span>
+        </div>
+        <div class="gift-inventory" id="giftInventory"><div class="loading-card panel">Загружаем подарки…</div></div>
       </section>
     </section>
 
