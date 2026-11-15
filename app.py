@@ -654,7 +654,9 @@ def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None
            WHERE id = ?""",
         (energy, passive_fraction, now, now, passive_added, passive_added, row["id"]),
     )
-    return conn.execute("SELECT * FROM players WHERE id = ?", (row["id"],)).fetchone()
+    updated = conn.execute("SELECT * FROM players WHERE id = ?", (row["id"],)).fetchone()
+    sync_era_progress(conn, updated)
+    return updated
 
 
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
