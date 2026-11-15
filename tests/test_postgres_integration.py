@@ -219,5 +219,36 @@ class PostgreSQLIntegrationTest(unittest.TestCase):
         self.assertEqual(int(sent["total"]), 5)
 
 
+    def test_all_game_mutation_routes_reject_missing_csrf(self):
+        protected_routes = [
+            ("/api/gifts/send", {}),
+            ("/api/gifts/activate", {}),
+            ("/api/achievement/claim", {"id": "taps_1000"}),
+            ("/api/winter/quest/claim", {"id": "calendar_7"}),
+            ("/api/winter/shop/purchase", {"item_code": "era1_santa_hat"}),
+            ("/api/winter/calendar/claim", {}),
+            ("/api/era/transition", {}),
+            ("/api/click", {"count": 1}),
+            ("/api/upgrade", {"id": "tap"}),
+            ("/api/daily", {}),
+            ("/api/tap-reward/claim", {"milestone": 50}),
+            ("/api/combo/claim", {}),
+            ("/api/cipher/claim", {"answer": "TEST"}),
+            ("/api/quest/claim", {"id": "tap_100"}),
+            ("/api/boost/turbo", {}),
+            ("/api/boost/energy", {}),
+            ("/api/nickname", {"nickname": "Tester"}),
+            ("/api/profile/update", {"avatar": "☁️", "frame": "cloud"}),
+            ("/api/shop/create-invoice", {"package_id": "starter"}),
+        ]
+        for path, payload in protected_routes:
+            with self.subTest(path=path):
+                response = self.client.post(path, json=payload)
+                self.assertEqual(
+                    response.status_code, 403,
+                    f"{path} did not reject missing CSRF token: {response.get_data(as_text=True)}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
