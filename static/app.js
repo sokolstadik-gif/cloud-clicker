@@ -830,6 +830,7 @@ async function transitionEra() {
   const confirmed = window.confirm('Переход необратим. Баланс и улучшения текущей эпохи сохранятся в архиве, а новая эпоха начнётся с нуля. Перейти?');
   if (!confirmed) return;
   $('eraTransitionBtn').disabled = true;
+  $('eraTabTransitionBtn').disabled = true;
   try {
     const data = await api('/api/era/transition', 'POST', {});
     if (data.state) renderState(data.state);
@@ -842,7 +843,10 @@ async function transitionEra() {
   } catch (error) {
     showToast(error.message);
   } finally {
-    if (currentState?.era?.progress?.unlocked) $('eraTransitionBtn').disabled = false;
+    if (currentState?.era?.progress?.unlocked) {
+      $('eraTransitionBtn').disabled = false;
+      $('eraTabTransitionBtn').disabled = false;
+    }
   }
 }
 
