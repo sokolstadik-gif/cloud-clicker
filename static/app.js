@@ -87,6 +87,16 @@ function renderEra(state) {
   });
 }
 
+function renderReferrals(state) {
+  const data = state.referrals;
+  if (!data) return;
+  $('referralLink').value = data.link;
+  $('referralInvited').textContent = fmt.format(data.invited);
+  $('referralActive').textContent = fmt.format(data.active);
+  $('referralPending').textContent = fmt.format(data.pending);
+  $('referralRewards').textContent = fmt.format(data.rewards);
+}
+
 function renderWinterEvent(state) {
   const event = state.winter_event;
   if (!event) return;
@@ -136,6 +146,7 @@ function renderState(state) {
   currentState = state;
   renderEra(state);
   renderWinterEvent(state);
+  renderReferrals(state);
   $('coins').textContent = fmt.format(state.coins);
   $('tapPower').textContent = `+${fmt.format(state.tap_power)}`;
   $('passiveIncome').textContent = `+${fmt.format(state.passive_per_sec)}`;
@@ -675,6 +686,15 @@ async function saveNickname() {
 function activateTab(name) {
   $('eraTransitionBtn').addEventListener('click', transitionEra);
 $('winterClaimBtn').addEventListener('click', claimWinterCalendar);
+$('copyReferralBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('referralLink').value);
+    showToast('Реферальная ссылка скопирована!');
+  } catch {
+    $('referralLink').select();
+    showToast('Выделил ссылку — скопируй её вручную.');
+  }
+});
 document.querySelectorAll('.tab-button').forEach((button) => {
     const active = button.dataset.tab === name;
     button.classList.toggle('active', active);
