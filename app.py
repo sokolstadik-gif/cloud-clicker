@@ -5,8 +5,11 @@ import hmac
 import json
 import os
 import random
+import re
 import secrets
 import sqlite3
+
+import psycopg
 import time
 import uuid
 import urllib.error
@@ -23,6 +26,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 DB_PATH = Path(os.environ.get("DATABASE_PATH", str(BASE_DIR / "game.db")))
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 REQUIRE_TELEGRAM_AUTH = os.environ.get("REQUIRE_TELEGRAM_AUTH", "0") == "1"
@@ -147,7 +151,97 @@ CIPHER_WORDS = [
 ]
 
 
-def get_db() -> sqlite3.Connection:
+class HybridRow(dict):
+    """PostgreSQL row with both SQLite-style name and numeric indexing."""
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return tuple(self.values())[key]
+        return super().__getitem__(key)
+
+
+def hybrid_row_factory(cursor):
+    names = [column.name for column in cursor.description]
+
+    def make_row(values):
+        return HybridRow(zip(names, values))
+
+    return make_row
+
+
+class PostgresCompatConnection:
+    """Small SQLite-compatible adapter for the SQL used by this application."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __enter__(self):
+        self.connection.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return self.connection.__exit__(exc_type, exc_value, traceback)
+
+    def close(self):
+        self.connection.close()
+
+    @staticmethod
+    def translate(sql):
+        statement = sql.strip()
+
+        if re.match(r"(?is)^PRAGMA\\s+(journal_mode|foreign_keys)", statement):
+            return "SELECT 1"
+        table_info = re.match(r"(?is)^PRAGMA\\s+table_info\\((\\w+)\\)", statement)
+        if table_info:
+            return (
+                "SELECT ordinal_position - 1 AS cid, column_name AS name "
+                "FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = %s "
+                "ORDER BY ordinal_position"
+            ), (table_info.group(1),)
+        if re.match(r"(?is)^BEGIN\\s+IMMEDIATE$", statement):
+            # SQLite serialized writers globally. Lock one shared row to retain
+            # that protection on PostgreSQL and prevent double-spending races.
+            return "SELECT id FROM app_write_lock WHERE id = 1 FOR UPDATE"
+
+        ignore_insert = bool(re.match(r"(?is)^INSERT\\s+OR\\s+IGNORE\\s+INTO\\b", statement))
+        if ignore_insert:
+            statement = re.sub(r"(?i)^INSERT\\s+OR\\s+IGNORE\\s+INTO\\b", "INSERT INTO", statement)
+            statement = statement.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+
+        statement = re.sub(
+            r"(?i)MIN\\(\\s*\\?\\s*,\\s*progress\\s*\\+\\s*\\?\\s*\\)",
+            "LEAST(?, progress + ?)",
+            statement,
+        )
+        return statement.replace("?", "%s")
+
+    def execute(self, sql, params=()):
+        translated = self.translate(sql)
+        if isinstance(translated, tuple):
+            query, query_params = translated
+            return self.connection.execute(query, query_params)
+        return self.connection.execute(translated, params or ())
+
+    def executemany(self, sql, params_seq):
+        translated = self.translate(sql)
+        if isinstance(translated, tuple):
+            raise ValueError("PRAGMA table_info does not support executemany")
+        return self.connection.executemany(translated, params_seq)
+
+
+def get_db():
+    if DATABASE_URL:
+        dsn = DATABASE_URL
+        if dsn.startswith("postgres://"):
+            dsn = "postgresql://" + dsn[len("postgres://"):]
+        connection = psycopg.connect(
+            dsn,
+            row_factory=hybrid_row_factory,
+            connect_timeout=10,
+        )
+        return PostgresCompatConnection(connection)
+
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -277,6 +371,8 @@ def init_db() -> None:
             )"""
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_star_payments_status ON star_payments(status, created_at)")
+        conn.execute("CREATE TABLE IF NOT EXISTS app_write_lock (id INTEGER PRIMARY KEY CHECK (id = 1))")
+        conn.execute("INSERT OR IGNORE INTO app_write_lock (id) VALUES (1)")
 
 
 def get_player_id() -> str:
