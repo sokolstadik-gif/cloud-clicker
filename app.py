@@ -573,7 +573,6 @@ def sync_era_progress(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, A
     """Accumulate server-observed per-era deltas without altering lifetime totals."""
     era = int(row["active_era"])
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
-    era_overview = get_era_overview(conn, row) if conn is not None else None
     level_total = sum(levels.values())
     saved = conn.execute(
         "SELECT * FROM player_era_progress WHERE player_id = ? AND era = ?",
@@ -660,6 +659,7 @@ def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None
 
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
+    era_overview = get_era_overview(conn, row) if conn is not None else None
     upgrades = []
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
@@ -1198,78 +1198,3 @@ def process_successful_payment(message: dict[str, Any]) -> None:
         conn.execute(
             "UPDATE star_payments SET status = 'paid', telegram_charge_id = ?, paid_at = ? WHERE id = ?",
             (charge_id, time.time(), payment["id"]),
-        )
-
-
-def process_start_message(message: dict[str, Any]) -> None:
-    if not PUBLIC_BASE_URL.startswith("https://"):
-        app.logger.warning("PUBLIC_BASE_URL is not configured; skipping /start Mini App button")
-        return
-    chat = message.get("chat") or {}
-    if chat.get("type") != "private" or not chat.get("id"):
-        return
-    telegram_api("sendMessage", {
-        "chat_id": chat["id"],
-        "text": "☁ Добро пожаловать в Cloud Clicker! Нажимай на облако, собирай Cloudcoin и открывай улучшения.\n\nКоманды: /terms — условия покупок, /support — поддержка.",
-        "reply_markup": {
-            "inline_keyboard": [[{
-                "text": "☁ Открыть Cloud Clicker",
-                "web_app": {"url": PUBLIC_BASE_URL},
-            }]]
-        },
-    })
-
-
-def process_bot_command(message: dict[str, Any]) -> None:
-    chat = message.get("chat") or {}
-    if chat.get("type") != "private" or not chat.get("id"):
-        return
-    command = str(message.get("text", "")).strip().split(" ", 1)[0].split("@", 1)[0]
-    if command == "/terms":
-        text = (PUBLIC_BASE_URL + "/terms") if PUBLIC_BASE_URL.startswith("https://") else "Условия покупки доступны на сайте Cloud Clicker."
-        telegram_api("sendMessage", {"chat_id": chat["id"], "text": "Условия покупки цифровых товаров Cloud Clicker: " + text})
-    elif command == "/support":
-        telegram_api("sendMessage", {"chat_id": chat["id"], "text": "По вопросам платежей и начисления Cloudcoin напиши создателю: @deIaywork. Сохрани квитанцию Telegram Stars и укажи дату и пакет покупки."})
-
-
-@app.get("/terms")
-def terms_page():
-    return """<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Условия Cloud Clicker</title><body style='font:16px/1.6 system-ui;max-width:760px;margin:40px auto;padding:0 18px;background:#080b10;color:#e6f2ff'><h1>Условия покупок Cloud Clicker</h1><p>Покупки в Telegram Mini App проводятся в Telegram Stars (XTR). Счёт и оплата обрабатываются Telegram.</p><p>Cloudcoin — внутриигровая цифровая валюта Cloud Clicker. Она предназначена только для использования в игре, не является криптовалютой, электронными деньгами или денежным балансом, не имеет гарантированной денежной стоимости и не подлежит выводу или обмену на реальные деньги.</p><p>Cloudcoin начисляется на игровой аккаунт после получения сервером подтверждения успешного платежа Telegram. Не закрывай приложение до завершения платёжного окна. Если покупка оплачена, но Cloudcoin не появились, обратись в поддержку и приложи информацию из квитанции.</p><p>Покупка связана с Telegram ID аккаунта, с которого была открыта Mini App. Не передавай другим людям доступ к аккаунту.</p><p>Поддержка по покупкам: <a style='color:#9edaff' href='https://t.me/deIaywork'>@deIaywork</a>. Условия могут обновляться; перед покупкой проверь актуальную версию этой страницы.</p><p><a style='color:#9edaff' href='/'>Вернуться в игру</a></p></body></html>"""
-
-
-@app.post("/telegram/webhook")
-def telegram_webhook():
-    if not TELEGRAM_WEBHOOK_SECRET:
-        return jsonify({"ok": False, "error": "Webhook secret is not configured"}), 503
-    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if not secrets.compare_digest(supplied, TELEGRAM_WEBHOOK_SECRET):
-        return jsonify({"ok": False}), 403
-    update = request.get_json(silent=True) or {}
-    try:
-        if "pre_checkout_query" in update:
-            process_pre_checkout(update["pre_checkout_query"])
-        elif "message" in update:
-            message = update["message"] or {}
-            if "successful_payment" in message:
-                process_successful_payment(message)
-            else:
-                command = str(message.get("text", "")).strip().split(" ", 1)[0].split("@", 1)[0]
-                if command == "/start":
-                    process_start_message(message)
-                elif command in {"/terms", "/support"}:
-                    process_bot_command(message)
-    except Exception:
-        app.logger.exception("Telegram webhook processing failed")
-        return jsonify({"ok": False}), 500
-    return jsonify({"ok": True})
-
-
-@app.get("/health")
-def health():
-    return jsonify({"status": "ok"})
-
-
-init_db()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=False)
