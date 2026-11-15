@@ -90,6 +90,9 @@ jobs:
           assert cosmetic.get_json()["state"]["winter_event"]["tickets"] == 920
           duplicate_cosmetic = client.post("/api/winter/shop/purchase", json={"item_code": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
           assert duplicate_cosmetic.status_code == 409
+          equip_cosmetic = client.post("/api/profile/update", json={"avatar": "🎅", "frame": "cosmic", "cosmetic": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
+          assert equip_cosmetic.status_code == 200, equip_cosmetic.get_data(as_text=True)
+          assert equip_cosmetic.get_json()["state"]["profile"]["equipped_cosmetic"] == "era1_santa_hat"
           archive = after["era"]["archive"]
           first = next(item for item in archive if item["era"] == 1)
           assert first["balance"] == 1234
