@@ -273,3 +273,192 @@ body::before {
 
 
 .equipped-cosmetic { position:absolute; z-index:3; top:12%; right:20%; pointer-events:none; font-size:25px; line-height:1; filter:drop-shadow(0 2px 5px rgba(0,0,0,.35)); }
+
+
+/* Holiday atmosphere — warm Christmas lights, evergreen and champagne gold */
+body {
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at 12% 5%, rgba(201, 57, 69, .18), transparent 30%),
+    radial-gradient(ellipse at 88% 12%, rgba(221, 178, 91, .15), transparent 27%),
+    radial-gradient(ellipse at 50% 72%, rgba(28, 104, 77, .13), transparent 42%),
+    linear-gradient(180deg, #10231f 0%, #091a1b 48%, #101923 100%);
+}
+body::before {
+  opacity: .34;
+  background-image:
+    radial-gradient(2px 2px at 8% 18%, #fff7df 55%, transparent 60%),
+    radial-gradient(2px 2px at 22% 72%, #d8efff 55%, transparent 60%),
+    radial-gradient(3px 3px at 38% 38%, #ffffff 55%, transparent 60%),
+    radial-gradient(2px 2px at 57% 12%, #ffe3a1 55%, transparent 60%),
+    radial-gradient(2px 2px at 73% 61%, #ffffff 55%, transparent 60%),
+    radial-gradient(3px 3px at 91% 31%, #ffd5d8 55%, transparent 60%);
+  background-size: 260px 280px;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: -20% 0 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .17;
+  background-image:
+    radial-gradient(1px 1px at 14% 24%, #fff 55%, transparent 60%),
+    radial-gradient(2px 2px at 46% 62%, #f8dca2 55%, transparent 60%),
+    radial-gradient(1px 1px at 82% 16%, #fff 55%, transparent 60%),
+    radial-gradient(2px 2px at 68% 84%, #ffd5d8 55%, transparent 60%);
+  background-size: 190px 220px;
+  animation: holiday-snow-drift 32s linear infinite;
+}
+@keyframes holiday-snow-drift {
+  from { transform: translate3d(0, -2%, 0); }
+  to { transform: translate3d(2%, 12%, 0); }
+}
+.topbar {
+  position: relative;
+  border-bottom-color: rgba(230, 190, 112, .28);
+}
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  bottom: -5px;
+  height: 10px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle, #f06b73 0 3px, transparent 4px) 0 0 / 52px 10px repeat-x,
+    radial-gradient(circle, #f5d17d 0 3px, transparent 4px) 13px 0 / 52px 10px repeat-x,
+    radial-gradient(circle, #83d5ac 0 3px, transparent 4px) 26px 0 / 52px 10px repeat-x,
+    radial-gradient(circle, #a9ddff 0 3px, transparent 4px) 39px 0 / 52px 10px repeat-x;
+  filter: drop-shadow(0 0 5px rgba(246, 207, 126, .45));
+  opacity: .9;
+}
+.brand-mark {
+  background: linear-gradient(145deg, #fff3d2, #e6b85e 52%, #c64b57);
+  color: #3a2020;
+  box-shadow: 0 0 22px rgba(235, 190, 103, .28);
+}
+.brand-light { color: #d7bd8b; }
+.holiday-ribbon {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin: 16px 0 13px;
+  padding: 12px 16px;
+  overflow: hidden;
+  border: 1px solid rgba(240, 199, 119, .38);
+  border-radius: 15px;
+  background:
+    radial-gradient(ellipse at 12% 50%, rgba(255, 220, 153, .16), transparent 34%),
+    linear-gradient(105deg, rgba(112, 34, 48, .92), rgba(25, 83, 62, .94) 52%, rgba(112, 34, 48, .92));
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .2), inset 0 1px rgba(255, 255, 255, .08);
+  color: #fff1cf;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .45px;
+}
+.holiday-ribbon::before, .holiday-ribbon::after {
+  content: "✦";
+  color: #f4d58e;
+  font-size: 15px;
+  text-shadow: 0 0 12px rgba(255, 225, 156, .7);
+}
+.holiday-ribbon span { position: relative; z-index: 1; }
+.panel, .upgrade-card {
+  border-color: rgba(224, 190, 132, .2);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .26), inset 0 1px rgba(255, 255, 255, .025);
+}
+.main-tabs {
+  border-color: rgba(222, 188, 128, .22);
+  background: rgba(7, 24, 22, .93);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+}
+.tab-button.active {
+  background: linear-gradient(135deg, rgba(147, 48, 57, .58), rgba(29, 100, 71, .62));
+  color: #fff0d0;
+  box-shadow: inset 0 0 0 1px rgba(239, 202, 128, .26), 0 0 18px rgba(184, 70, 70, .1);
+}
+.primary-button, .promo-button {
+  background: linear-gradient(135deg, #fff0ca, #e9bf72 58%, #d98b69);
+  color: #39231d;
+  box-shadow: 0 5px 16px rgba(201, 132, 69, .14);
+}
+.primary-button:hover, .promo-button:hover { filter: brightness(1.08); }
+.secondary-button, .buy-button, .reward-claim, .level-pill {
+  background: linear-gradient(135deg, #254f3e, #63313b);
+  color: #ffebc5;
+}
+.era-panel {
+  border-color: rgba(225, 190, 122, .3);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(192, 65, 74, .18), transparent 35%),
+    radial-gradient(circle at 92% 0%, rgba(225, 183, 96, .16), transparent 36%),
+    linear-gradient(135deg, rgba(19, 55, 43, .97), rgba(36, 29, 36, .98));
+}
+.era-panel-top h2 { color: #fff0d0; }
+.era-number {
+  border-color: rgba(235, 195, 120, .35);
+  color: #f6d99d;
+  background: rgba(126, 48, 55, .22);
+}
+.era-progress-track { background: rgba(6, 19, 17, .7); }
+.era-progress-track > div {
+  background: linear-gradient(90deg, #a83d4c, #e9b85f 58%, #8bd4aa);
+}
+.cloud-button {
+  border-color: rgba(240, 211, 160, .58);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(226, 179, 93, .3), transparent 48%),
+    radial-gradient(circle at 50% 42%, #31594b 0, #183a32 62%, #102721 100%);
+  box-shadow: 0 0 60px rgba(224, 181, 99, .2), 0 0 110px rgba(184, 63, 73, .09), inset 0 0 34px rgba(255, 231, 181, .13);
+}
+.cloud-button:hover { border-color: rgba(255, 233, 188, .9); }
+.tap-ring { border-color: rgba(255, 226, 169, .46); }
+.tap-hint {
+  color: #fff0c9;
+  text-shadow: 0 1px 12px rgba(220, 166, 78, .72);
+}
+.energy-fill, .reward-track > div {
+  background: linear-gradient(90deg, #a83d4c, #e9b85f 68%, #8bd4aa);
+}
+.winter-calendar-status, .winter-shop-item, .gift-card {
+  border-color: rgba(228, 188, 117, .22);
+}
+.winter-day {
+  border-color: rgba(223, 190, 135, .2);
+  background: linear-gradient(145deg, rgba(29, 64, 50, .68), rgba(38, 35, 42, .82));
+}
+.winter-day.is-current {
+  border-color: rgba(244, 207, 126, .8);
+  background: linear-gradient(145deg, rgba(136, 51, 61, .46), rgba(32, 91, 64, .55));
+  box-shadow: 0 0 20px rgba(235, 187, 96, .17);
+}
+.winter-day.is-claimed {
+  border-color: rgba(119, 206, 157, .48);
+  background: rgba(32, 105, 71, .24);
+}
+.winter-shop-icon {
+  background: linear-gradient(145deg, rgba(151, 57, 67, .3), rgba(218, 174, 91, .2), rgba(34, 104, 73, .28));
+}
+.winter-shop-item.is-owned {
+  border-color: rgba(132, 218, 167, .5);
+  background: linear-gradient(145deg, rgba(33, 99, 68, .2), rgba(218, 174, 91, .06));
+}
+.gift-card.rarity-legendary {
+  border-color: rgba(244, 204, 123, .68);
+  box-shadow: 0 0 22px rgba(235, 187, 96, .12);
+}
+.footer { border-top-color: rgba(224, 190, 132, .24); }
+@media (max-width: 600px) {
+  .holiday-ribbon { margin: 12px 0 10px; padding: 10px 11px; font-size: 9px; line-height: 1.45; }
+  .topbar::after { left: 5%; right: 5%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::after { animation: none; }
+  .holiday-ribbon { scroll-behavior: auto; }
+}
