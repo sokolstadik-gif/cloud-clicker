@@ -1112,9 +1112,10 @@ def send_gift():
             """INSERT INTO player_gifts
                (id, sender_id, receiver_id, gift_code, kind, rarity, effect,
                 duration_seconds, created_at, status, note)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inventory', ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (gift_id, player_id, receiver_id, gift_code, gift["kind"], gift["rarity"],
-             gift.get("effect"), int(gift.get("duration", 0)), now, note),
+             gift.get("effect"), int(gift.get("duration", 0)), now,
+             "collected" if gift["kind"] == "decor" else "inventory", note),
         )
         updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(updated, conn)
