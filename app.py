@@ -161,9 +161,9 @@ class HybridRow(dict):
 
 
 def hybrid_row_factory(cursor):
-    names = [column.name for column in cursor.description]
-
     def make_row(values):
+        # Description is populated after execute(), not when the cursor is created.
+        names = [column.name for column in cursor.description]
         return HybridRow(zip(names, values))
 
     return make_row
