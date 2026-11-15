@@ -39,18 +39,28 @@
     </nav>
 
     <section class="tab-panel active" id="tab-game" data-panel="game">
+      <section class="era-panel panel" id="eraPanel" aria-live="polite">
+        <div class="era-panel-top">
+          <div><p class="eyebrow">ТВОЙ ПУТЬ ПО ЭПОХАМ</p><h2 id="eraPanelTitle">Облачное королевство</h2><p id="eraCurrency">Валюта эпохи: Cloudcoin</p></div>
+          <span class="era-number" id="eraNumber">ЭПОХА 1 / 4</span>
+        </div>
+        <div class="era-progress-copy"><span id="eraRequirement">Следующая эпоха: 5 000 тапов в первой эпохе</span><b id="eraProgressText">0 / 5 000</b></div>
+        <div class="era-progress-track"><div id="eraProgressFill"></div></div>
+        <button class="primary-button era-transition" id="eraTransitionBtn" type="button" disabled>Перейти в новую эпоху</button>
+        <div class="era-archive" id="eraArchive"></div>
+      </section>
       <section class="hero-grid">
         <section class="game-card panel">
           <div class="card-heading">
             <div>
               <p class="eyebrow">ТВОЯ ОБЛАЧНАЯ КОПИЛКА</p>
-              <h1>Cloudcoin</h1>
+              <h1 id="eraName">Cloudcoin</h1>
             </div>
             <span class="level-pill" id="levelPill">Уровень 1</span>
           </div>
 
           <div class="coin-total"><span class="coin-symbol">☁</span><span id="coins">0</span></div>
-          <div class="currency-label">CLOUDCOIN</div>
+          <div class="currency-label" id="currencyLabel">CLOUDCOIN</div>
           <div class="income-row">
             <span>За тап <b id="tapPower">+1</b></span>
             <span>В секунду <b id="passiveIncome">+0</b></span>
