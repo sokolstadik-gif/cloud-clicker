@@ -227,7 +227,7 @@ class PostgresCompatConnection:
         translated = self.translate(sql)
         if isinstance(translated, tuple):
             raise ValueError("PRAGMA table_info does not support executemany")
-        return self.connection.executemany(translated, params_seq)
+        return self.connection.cursor().executemany(translated, params_seq)
 
 
 def get_db():
