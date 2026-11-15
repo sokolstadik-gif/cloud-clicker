@@ -189,9 +189,9 @@ class PostgresCompatConnection:
     def translate(sql):
         statement = sql.strip()
 
-        if re.match(r"(?is)^PRAGMA\\s+(journal_mode|foreign_keys)", statement):
+        if re.match(r"(?is)^PRAGMA\s+(journal_mode|foreign_keys)", statement):
             return "SELECT 1"
-        table_info = re.match(r"(?is)^PRAGMA\\s+table_info\\((\\w+)\\)", statement)
+        table_info = re.match(r"(?is)^PRAGMA\s+table_info\((\w+)\)", statement)
         if table_info:
             return (
                 "SELECT ordinal_position - 1 AS cid, column_name AS name "
@@ -199,18 +199,18 @@ class PostgresCompatConnection:
                 "WHERE table_schema = current_schema() AND table_name = %s "
                 "ORDER BY ordinal_position"
             ), (table_info.group(1),)
-        if re.match(r"(?is)^BEGIN\\s+IMMEDIATE$", statement):
+        if re.match(r"(?is)^BEGIN\s+IMMEDIATE$", statement):
             # SQLite serialized writers globally. Lock one shared row to retain
             # that protection on PostgreSQL and prevent double-spending races.
             return "SELECT id FROM app_write_lock WHERE id = 1 FOR UPDATE"
 
-        ignore_insert = bool(re.match(r"(?is)^INSERT\\s+OR\\s+IGNORE\\s+INTO\\b", statement))
+        ignore_insert = bool(re.match(r"(?is)^INSERT\s+OR\s+IGNORE\s+INTO\b", statement))
         if ignore_insert:
-            statement = re.sub(r"(?i)^INSERT\\s+OR\\s+IGNORE\\s+INTO\\b", "INSERT INTO", statement)
+            statement = re.sub(r"(?i)^INSERT\s+OR\s+IGNORE\s+INTO\b", "INSERT INTO", statement)
             statement = statement.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
 
         statement = re.sub(
-            r"(?i)MIN\\(\\s*\\?\\s*,\\s*progress\\s*\\+\\s*\\?\\s*\\)",
+            r"(?i)MIN\(\s*\?\s*,\s*progress\s*\+\s*\?\s*\)",
             "LEAST(?, progress + ?)",
             statement,
         )
