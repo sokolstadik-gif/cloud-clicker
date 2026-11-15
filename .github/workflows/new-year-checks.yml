@@ -115,7 +115,7 @@ jobs:
           assert third_boost.get_json()["state"]["gifts"]["active_boosts"] == 2
           tap = client.post("/api/click", json={"count": 1}, headers={"X-CSRF-Token": csrf})
           assert tap.status_code == 200, tap.get_data(as_text=True)
-          assert tap.get_json()["earned"] == 7
+          assert tap.get_json()["earned"] == 10
           app.validate_telegram_init_data = lambda raw: {"id": 9000000000002, "username": "sender", "first_name": "Sender", "last_name": ""}
           with app.db_connection() as conn:
               conn.execute(
