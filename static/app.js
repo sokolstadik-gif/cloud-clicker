@@ -131,7 +131,7 @@ async function openPublicProfile(code) {
     $('profileDialogEra').textContent = `Эпоха ${profile.era} · ${profile.frame} рамка`;
     if (profile.equipped_cosmetic) {
       const cosmetic = document.createElement('p');
-      cosmetic.textContent = `Украшение: ${profile.equipped_cosmetic}`;
+      cosmetic.textContent = `Украшение: ${profile.equipped_cosmetic_icon} ${profile.equipped_cosmetic_title}`;
       $('profileDialogEra').append(cosmetic);
     }
     const stats = $('profileDialogStats');
@@ -155,7 +155,7 @@ async function openPublicProfile(code) {
     heading.textContent = 'Коллекция и достижения';
     collection.append(heading);
     [...profile.achievements.map(item => `${item.badge} ${item.title}`),
-      ...profile.cosmetics.map(code => `🎨 ${code}`),
+      ...profile.cosmetics.map(item => `${item.icon} ${item.title}`),
       ...profile.gifts.map(item => `${item.icon} ${item.title}`)].forEach((value) => {
       const line = document.createElement('p');
       line.textContent = value;
