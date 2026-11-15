@@ -440,6 +440,8 @@ async function purchaseWinterItem(item_code) {
 
 function renderState(state) {
   currentState = state;
+  const adminButton = $('adminMaxBtn');
+  if (adminButton) adminButton.hidden = !state.is_admin;
   const currency = state.era?.currency || 'Cloudcoin';
   renderEra(state);
   renderEraTab(state);
@@ -1085,6 +1087,23 @@ document.addEventListener('fullscreenchange', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) { refreshState(); refreshLeaderboard(); }
+});
+
+$('adminMaxBtn')?.addEventListener('click', async () => {
+  if (!currentState?.is_admin) return;
+  if (!window.confirm('Включить MAX-прокачку для своего аккаунта? Это выдаст огромный баланс, 4 эпоху, все улучшения и награды.')) return;
+  const button = $('adminMaxBtn');
+  button.disabled = true;
+  try {
+    const data = await api('/api/admin/max', 'POST', {});
+    if (!data.ok) throw new Error(data.error || 'Не удалось включить MAX.');
+    if (data.state) renderState(data.state);
+    showToast(data.message || 'MAX-прокачка активирована 👑');
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 const creatorDialog = $('creatorDialog');
