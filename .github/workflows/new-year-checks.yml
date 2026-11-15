@@ -34,8 +34,33 @@ jobs:
           client = app.app.test_client()
           response = client.get("/api/state")
           assert response.status_code == 200, response.get_data(as_text=True)
+          with client.session_transaction() as session:
+              player_id = session["player_id"]
+              csrf = session["csrf_token"]
+          with app.db_connection() as conn:
+              conn.execute(
+                  "UPDATE players SET coins = 1234, total_earned = 1234, total_taps = 5000, tap_level = 2 WHERE id = ?",
+                  (player_id,),
+              )
+          response = client.get("/api/state")
+          assert response.status_code == 200, response.get_data(as_text=True)
           state = response.get_json()["state"]
           assert state["era"]["current"] == 1
           assert state["era"]["currency"] == "Cloudcoin"
-          print("SQLite migration and state API: OK")
+          assert state["era"]["progress"]["unlocked"] is True
+          transition = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
+          assert transition.status_code == 200, transition.get_data(as_text=True)
+          after = transition.get_json()["state"]
+          assert after["era"]["current"] == 2
+          assert after["coins"] == 0
+          assert after["total_taps"] == 5000
+          archive = after["era"]["archive"]
+          first = next(item for item in archive if item["era"] == 1)
+          assert first["balance"] == 1234
+          assert first["earned"] == 1234
+          assert first["taps"] == 5000
+          assert first["levels"]["tap"] == 2
+          blocked = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
+          assert blocked.status_code == 409
+          print("SQLite migration, archive preservation, and era transition: OK")
           PY
