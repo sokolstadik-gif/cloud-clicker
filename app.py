@@ -352,6 +352,13 @@ def init_db() -> None:
             frame TEXT NOT NULL DEFAULT 'cloud',
             updated_at REAL NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_quest_claims (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            quest_id TEXT NOT NULL,
+            reward INTEGER NOT NULL,
+            claimed_at REAL NOT NULL,
+            PRIMARY KEY (player_id, quest_id)
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS winter_cosmetics (
             player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
             item_code TEXT NOT NULL,
@@ -754,6 +761,7 @@ def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
             "today_reward": winter_ticket_reward(day_number) if calendar["active"] else 0,
         },
         "tickets": int(player["tickets"]),
+        "quests": winter_quest_state(conn, row["id"], event_start.isoformat()),
         "shop": [
             {"code": code, **item, "owned": code in owned, "available": int(row["active_era"]) >= item["era_required"]}
             for code, item in WINTER_SHOP.items()
@@ -775,6 +783,39 @@ WINTER_SHOP = {
     "era4_winter_wings": {"title": "Крылья зимнего света", "icon": "🪽", "description": "Легендарное украшение Божественного измерения", "era_required": 4, "price": 240},
     "legendary_new_year_cloud": {"title": "Легендарное новогоднее облако", "icon": "🌌", "description": "Главная награда зимнего события", "era_required": 4, "price": 500},
 }
+
+
+WINTER_QUESTS = [
+    {"id": "calendar_7", "title": "Первая неделя зимы", "description": "Получи подарки за 7 дней календаря", "metric": "calendar_days", "target": 7, "reward": 25, "icon": "📅"},
+    {"id": "calendar_15", "title": "Постоянный гость", "description": "Получи подарки за 15 дней календаря", "metric": "calendar_days", "target": 15, "reward": 50, "icon": "❄️"},
+    {"id": "calendar_31", "title": "Хранитель зимы", "description": "Получи все 31 ежедневный подарок", "metric": "calendar_days", "target": 31, "reward": 100, "icon": "🏆"},
+    {"id": "gift_send_3", "title": "Щедрое облако", "description": "Отправь 3 подарка друзьям", "metric": "gifts_sent", "target": 3, "reward": 40, "icon": "🎁"},
+    {"id": "gift_receive_3", "title": "Любимец облаков", "description": "Получи 3 подарка от друзей", "metric": "gifts_received", "target": 3, "reward": 40, "icon": "💌"},
+    {"id": "cosmetic_1", "title": "Зимний стиль", "description": "Приобрети предмет в праздничном магазине", "metric": "cosmetics", "target": 1, "reward": 30, "icon": "✨"},
+]
+
+
+def winter_quest_state(conn: sqlite3.Connection, player_id: str, event_start: str) -> list[dict[str, Any]]:
+    start_ts = datetime.fromisoformat(event_start).replace(tzinfo=timezone.utc).timestamp()
+    metrics = {
+        "calendar_days": int(conn.execute("SELECT COUNT(*) AS n FROM winter_calendar_claims WHERE player_id = ?", (player_id,)).fetchone()["n"]),
+        "gifts_sent": int(conn.execute("SELECT COUNT(*) AS n FROM player_gifts WHERE sender_id = ? AND created_at >= ?", (player_id, start_ts)).fetchone()["n"]),
+        "gifts_received": int(conn.execute("SELECT COUNT(*) AS n FROM player_gifts WHERE receiver_id = ? AND created_at >= ?", (player_id, start_ts)).fetchone()["n"]),
+        "cosmetics": int(conn.execute("SELECT COUNT(*) AS n FROM winter_cosmetics WHERE player_id = ? AND purchased_at >= ?", (player_id, start_ts)).fetchone()["n"]),
+    }
+    claimed = {
+        item["quest_id"] for item in conn.execute(
+            "SELECT quest_id FROM winter_quest_claims WHERE player_id = ?",
+            (player_id,),
+        ).fetchall()
+    }
+    return [{
+        **item,
+        "progress": min(item["target"], metrics[item["metric"]]),
+        "percent": min(100, int(metrics[item["metric"]] * 100 / item["target"])),
+        "unlocked": metrics[item["metric"]] >= item["target"],
+        "claimed": item["id"] in claimed,
+    } for item in WINTER_QUESTS]
 
 
 GIFT_CATALOG = {
@@ -1236,6 +1277,35 @@ def claim_achievement():
             (player_id, achievement_id, reward, time.time()),
         )
         conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (reward, reward, player_id))
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/winter/quest/claim")
+def claim_winter_quest():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    quest_id = str((request.get_json(silent=True) or {}).get("id", ""))
+    quest = next((item for item in WINTER_QUESTS if item["id"] == quest_id), None)
+    if quest is None:
+        return api_error("Такого зимнего задания нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        event = winter_event_state(conn, row)
+        status = next(item for item in event["quests"] if item["id"] == quest_id)
+        if status["claimed"]:
+            return jsonify({"ok": False, "error": "Награда за это задание уже получена.", "state": make_state(row, conn)}), 409
+        if not status["unlocked"]:
+            return jsonify({"ok": False, "error": "Задание ещё не выполнено.", "state": make_state(row, conn)}), 409
+        reward = int(quest["reward"])
+        conn.execute(
+            "INSERT INTO winter_quest_claims (player_id, quest_id, reward, claimed_at) VALUES (?, ?, ?, ?)",
+            (player_id, quest_id, reward, time.time()),
+        )
+        conn.execute("UPDATE winter_event_players SET tickets = tickets + ? WHERE player_id = ?", (reward, player_id))
         updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(updated, conn)
     return jsonify({"ok": True, "reward": reward, "state": result})
