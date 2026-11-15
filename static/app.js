@@ -161,6 +161,7 @@ function renderState(state) {
 
   renderUpgrades(state);
   renderRewards(state);
+  renderAchievements(state);
   renderCombo(state);
   renderCipher(state);
   renderQuests(state);
@@ -200,6 +201,43 @@ function renderUpgrades(state) {
     card.append(top, category, title, description, buy);
     root.append(card);
   }
+}
+
+function renderAchievements(state) {
+  const root = $('achievementsList');
+  if (!root) return;
+  root.replaceChildren();
+  (state.achievements || []).forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `reward-card panel${item.claimed ? ' is-claimed' : item.unlocked ? ' is-unlocked' : ''}`;
+    const badge = document.createElement('div');
+    badge.className = 'reward-badge';
+    badge.textContent = item.badge || '★';
+    const body = document.createElement('div');
+    body.className = 'reward-body';
+    const title = document.createElement('h3');
+    title.textContent = item.title;
+    const description = document.createElement('p');
+    description.textContent = item.description;
+    const meta = document.createElement('p');
+    meta.textContent = `${fmt.format(item.progress)} / ${fmt.format(item.target)} · награда ${fmt.format(item.reward)} ${currentState?.era?.currency || 'монет'}`;
+    const track = document.createElement('div');
+    track.className = 'reward-track compact';
+    const fill = document.createElement('div');
+    fill.style.width = `${item.percent}%`;
+    track.append(fill);
+    body.append(title, description, meta, track);
+    const action = document.createElement('div');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'reward-claim';
+    button.textContent = item.claimed ? 'Получено' : item.unlocked ? 'Забрать' : `${item.percent}%`;
+    button.disabled = item.claimed || !item.unlocked;
+    if (item.unlocked && !item.claimed) button.addEventListener('click', () => claimAchievement(item.id));
+    action.append(button);
+    card.append(badge, body, action);
+    root.append(card);
+  });
 }
 
 function renderRewards(state) {
@@ -540,6 +578,15 @@ async function buyUpgrade(id) {
       showToast(`${item ? item.title : 'Улучшение'} куплено!`);
       refreshLeaderboard();
     } else showToast(data.error || 'Не удалось купить улучшение.');
+  } catch (error) { showToast(error.message); }
+}
+
+async function claimAchievement(id) {
+  try {
+    const data = await api('/api/achievement/claim', 'POST', { id });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(`Достижение получено: +${fmt.format(data.reward)} ${data.state.era.currency}!`);
+    else showToast(data.error || 'Награда пока недоступна.');
   } catch (error) { showToast(error.message); }
 }
 
