@@ -209,3 +209,25 @@ body::before {
   .winter-shop-item p { min-height:0; }
   .winter-shop-item button { grid-column:1 / -1; }
 }
+
+
+/* Player profile cards and viewer */
+.profile-editor { padding:18px; margin-top:18px; }
+.profile-editor h2 { margin:3px 0; font-size:16px; }
+.profile-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:14px 0; }
+.profile-edit-grid label { display:flex; flex-direction:column; gap:6px; color:#9eb5c8; font-size:10px; }
+.profile-edit-grid select { min-height:40px; border:1px solid var(--line); border-radius:10px; background:#0a111a; color:#d8efff; padding:0 10px; }
+.profile-editor > .primary-button { min-height:40px; margin-top:10px; }
+.leader-profile-button { border:1px solid rgba(146,192,220,.2); border-radius:8px; background:rgba(100,156,194,.1); color:#b8d8ed; padding:7px 9px; font-size:9px; cursor:pointer; }
+.profile-public-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:14px 0; }
+.profile-public-stats > div { display:flex; flex-direction:column; gap:4px; padding:10px; border:1px solid rgba(152,197,224,.13); border-radius:10px; }
+.profile-public-stats b { color:#d8efff; font-size:11px; }
+.profile-public-stats small { color:#8da5b8; font-size:9px; }
+.profile-public-collection h3 { color:#cde5f6; font-size:12px; }
+.profile-public-collection p { margin:5px 0; color:#9eb5c8; font-size:10px; }
+.profile-dialog .creator-dialog-inner { max-width:440px; }
+@media(max-width:520px) {
+  .profile-edit-grid { grid-template-columns:1fr; }
+  .leader-profile-button { padding:6px; }
+  .profile-public-stats { grid-template-columns:1fr; }
+}
