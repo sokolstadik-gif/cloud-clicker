@@ -1233,7 +1233,7 @@ def admin_max():
 
     player_id = get_player_id()
     now = time.time()
-    max_balance = 10**12
+    max_balance = 1_000_000_000
     max_level = 100
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
