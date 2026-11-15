@@ -224,6 +224,38 @@ function renderWinterEvent(state) {
     tile.append(numberLabel, rewardLabel, status);
     root.append(tile);
   }
+  const shop = $('winterShop');
+  shop.replaceChildren();
+  (event.shop || []).forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `winter-shop-item panel${item.owned ? ' is-owned' : ''}`;
+    const icon = document.createElement('div');
+    icon.className = 'winter-shop-icon';
+    icon.textContent = item.icon;
+    const title = document.createElement('h3');
+    title.textContent = item.title;
+    const description = document.createElement('p');
+    description.textContent = item.description;
+    const era = document.createElement('small');
+    era.textContent = `Открывается с эпохи ${item.era_required}`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = item.owned ? 'secondary-button' : 'primary-button';
+    button.textContent = item.owned ? 'В коллекции ✓' : `Купить · ${fmt.format(item.price)} 🎟`;
+    button.disabled = item.owned || !item.available || event.tickets < item.price;
+    if (!item.owned && item.available) button.addEventListener('click', () => purchaseWinterItem(item.code));
+    card.append(icon, title, description, era, button);
+    shop.append(card);
+  });
+}
+
+async function purchaseWinterItem(item_code) {
+  try {
+    const data = await api('/api/winter/shop/purchase', 'POST', { item_code });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(data.message || 'Предмет добавлен в коллекцию!');
+    else showToast(data.error || 'Не удалось купить предмет.');
+  } catch (error) { showToast(error.message); }
 }
 
 function renderState(state) {
