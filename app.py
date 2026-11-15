@@ -612,7 +612,7 @@ def get_era_overview(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, An
     current = sync_era_progress(conn, row)
     saved = {}
     for item in conn.execute(
-        "SELECT era, earned, taps, upgrade_purchases FROM player_era_progress WHERE player_id = ?",
+        "SELECT era, balance, earned, taps, upgrade_purchases, levels_json FROM player_era_progress WHERE player_id = ?",
         (row["id"],),
     ).fetchall():
         saved[int(item["era"])] = item
@@ -630,8 +630,10 @@ def get_era_overview(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, An
         "progress": unlock,
         "archive": [
             {"era": era, "name": ERA_NAMES[era][0], "currency": ERA_NAMES[era][1],
-             "earned": int(saved[era]["earned"]), "taps": int(saved[era]["taps"]),
+             "balance": int(saved[era]["balance"]), "earned": int(saved[era]["earned"]),
+             "taps": int(saved[era]["taps"]),
              "upgrade_purchases": int(saved[era]["upgrade_purchases"]),
+             "levels": json.loads(saved[era]["levels_json"]),
              "completed": era < current["era"]}
             for era in sorted(saved)
         ],
