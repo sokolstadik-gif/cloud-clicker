@@ -40,9 +40,9 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "").strip().lstr
 
 # Telegram Stars (XTR) are the supported in-app payment currency for digital goods.
 STAR_PACKAGES = {
-    "starter": {"title": "Cloud Starter", "description": "10 000 Cloudcoin для Cloud Clicker", "stars": 25, "coins": 10_000},
-    "pro": {"title": "Cloud Pro", "description": "60 000 Cloudcoin для Cloud Clicker", "stars": 100, "coins": 60_000},
-    "vip": {"title": "Cloud VIP", "description": "200 000 Cloudcoin для Cloud Clicker", "stars": 250, "coins": 200_000},
+    "starter": {"title": "Cloud Starter", "description": "10 000 игровых монет для Cloud Clicker", "stars": 25, "coins": 10_000},
+    "pro": {"title": "Cloud Pro", "description": "60 000 игровых монет для Cloud Clicker", "stars": 100, "coins": 60_000},
+    "vip": {"title": "Cloud VIP", "description": "200 000 игровых монет для Cloud Clicker", "stars": 250, "coins": 200_000},
 }
 
 app = Flask(__name__)
@@ -1518,7 +1518,7 @@ def buy_upgrade():
         level = int(row[level_column])
         cost = upgrade_cost(upgrade_id, level)
         if int(row["coins"]) < cost:
-            return jsonify({"ok": False, "error": "Пока не хватает Cloudcoin", "state": make_state(row, conn)}), 409
+            return jsonify({"ok": False, "error": "Пока не хватает валюты текущей эпохи", "state": make_state(row, conn)}), 409
         conn.execute(f"UPDATE players SET coins = coins - ?, {level_column} = {level_column} + 1 WHERE id = ?", (cost, player_id))
         if upgrade_id in combo_for_day(day):
             conn.execute("INSERT OR IGNORE INTO daily_combo_progress (player_id, combo_date, upgrade_id, purchased_at) VALUES (?, ?, ?, ?)", (player_id, day, upgrade_id, time.time()))
@@ -1666,7 +1666,7 @@ def activate_turbo():
         row = ensure_player(conn, player_id)
         row = advance_player(conn, row, now)
         if int(row["coins"]) < TURBO_COST:
-            return jsonify({"ok": False, "error": "Не хватает Cloudcoin на турбо-буст.", "state": make_state(row, conn)}), 409
+            return jsonify({"ok": False, "error": "Не хватает валюты текущей эпохи на турбо-буст.", "state": make_state(row, conn)}), 409
         new_until = min(max(float(row["turbo_until"]), now) + TURBO_SECONDS, now + 180)
         conn.execute("UPDATE players SET coins = coins - ?, turbo_until = ? WHERE id = ?", (TURBO_COST, new_until, player_id))
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
@@ -1686,7 +1686,7 @@ def activate_energy_boost():
         if float(row["energy"]) >= max_energy(row) - 0.5:
             return jsonify({"ok": False, "error": "Энергия уже полная.", "state": make_state(row, conn)}), 409
         if int(row["coins"]) < ENERGY_REFILL_COST:
-            return jsonify({"ok": False, "error": "Не хватает Cloudcoin на восстановление энергии.", "state": make_state(row, conn)}), 409
+            return jsonify({"ok": False, "error": "Не хватает валюты текущей эпохи на восстановление энергии.", "state": make_state(row, conn)}), 409
         conn.execute("UPDATE players SET coins = coins - ?, energy = ? WHERE id = ?", (ENERGY_REFILL_COST, max_energy(row), player_id))
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(row, conn)
@@ -1882,7 +1882,7 @@ def create_star_invoice():
             "description": package["description"],
             "payload": invoice_payload,
             "currency": "XTR",
-            "prices": [{"label": f"{package['coins']:,} Cloudcoin", "amount": int(package["stars"])}],
+            "prices": [{"label": f"{package['coins']:,} игровых монет", "amount": int(package["stars"])}],
         })
         invoice_url = result.get("result")
         if not isinstance(invoice_url, str) or not invoice_url.startswith("https://"):
@@ -1983,7 +1983,7 @@ def process_bot_command(message: dict[str, Any]) -> None:
 
 @app.get("/terms")
 def terms_page():
-    return """<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Условия Cloud Clicker</title><body style='font:16px/1.6 system-ui;max-width:760px;margin:40px auto;padding:0 18px;background:#080b10;color:#e6f2ff'><h1>Условия покупок Cloud Clicker</h1><p>Покупки в Telegram Mini App проводятся в Telegram Stars (XTR). Счёт и оплата обрабатываются Telegram.</p><p>Cloudcoin — внутриигровая цифровая валюта Cloud Clicker. Она предназначена только для использования в игре, не является криптовалютой, электронными деньгами или денежным балансом, не имеет гарантированной денежной стоимости и не подлежит выводу или обмену на реальные деньги.</p><p>Cloudcoin начисляется на игровой аккаунт после получения сервером подтверждения успешного платежа Telegram. Не закрывай приложение до завершения платёжного окна. Если покупка оплачена, но Cloudcoin не появились, обратись в поддержку и приложи информацию из квитанции.</p><p>Покупка связана с Telegram ID аккаунта, с которого была открыта Mini App. Не передавай другим людям доступ к аккаунту.</p><p>Поддержка по покупкам: <a style='color:#9edaff' href='https://t.me/deIaywork'>@deIaywork</a>. Условия могут обновляться; перед покупкой проверь актуальную версию этой страницы.</p><p><a style='color:#9edaff' href='/'>Вернуться в игру</a></p></body></html>"""
+    return """<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Условия Cloud Clicker</title><body style='font:16px/1.6 system-ui;max-width:760px;margin:40px auto;padding:0 18px;background:#080b10;color:#e6f2ff'><h1>Условия покупок Cloud Clicker</h1><p>Покупки в Telegram Mini App проводятся в Telegram Stars (XTR). Счёт и оплата обрабатываются Telegram.</p><p>Cloudcoin — внутриигровая цифровая валюта Cloud Clicker. Она предназначена только для использования в игре, не является криптовалютой, электронными деньгами или денежным балансом, не имеет гарантированной денежной стоимости и не подлежит выводу или обмену на реальные деньги.</p><p>Cloudcoin начисляется на игровой аккаунт после получения сервером подтверждения успешного платежа Telegram. Не закрывай приложение до завершения платёжного окна. Если покупка оплачена, но игровые монеты не появились, обратись в поддержку и приложи информацию из квитанции.</p><p>Покупка связана с Telegram ID аккаунта, с которого была открыта Mini App. Не передавай другим людям доступ к аккаунту.</p><p>Поддержка по покупкам: <a style='color:#9edaff' href='https://t.me/deIaywork'>@deIaywork</a>. Условия могут обновляться; перед покупкой проверь актуальную версию этой страницы.</p><p><a style='color:#9edaff' href='/'>Вернуться в игру</a></p></body></html>"""
 
 
 @app.post("/telegram/webhook")
