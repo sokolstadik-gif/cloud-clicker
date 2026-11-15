@@ -345,6 +345,13 @@ def init_db() -> None:
             claimed_at REAL NOT NULL,
             PRIMARY KEY (player_id, day_number)
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_profiles (
+            player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            public_code TEXT NOT NULL UNIQUE,
+            avatar TEXT NOT NULL DEFAULT '☁️',
+            frame TEXT NOT NULL DEFAULT 'cloud',
+            updated_at REAL NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS winter_cosmetics (
             player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
             item_code TEXT NOT NULL,
@@ -935,6 +942,33 @@ def referral_state(conn: sqlite3.Connection, player_id: str) -> dict[str, Any]:
     }
 
 
+PROFILE_AVATARS = ["☁️", "🎅", "❄️", "🌌", "👑", "✨"]
+PROFILE_FRAMES = {"cloud": 1, "winter": 1, "cosmic": 2, "royal": 3, "divine": 4}
+
+
+def ensure_public_profile(conn: sqlite3.Connection, player_id: str) -> sqlite3.Row:
+    saved = conn.execute("SELECT * FROM player_profiles WHERE player_id = ?", (player_id,)).fetchone()
+    if saved is None:
+        conn.execute(
+            "INSERT OR IGNORE INTO player_profiles (player_id, public_code, avatar, frame, updated_at) VALUES (?, ?, '☁️', 'cloud', ?)",
+            (player_id, secrets.token_urlsafe(9), time.time()),
+        )
+        saved = conn.execute("SELECT * FROM player_profiles WHERE player_id = ?", (player_id,)).fetchone()
+    return saved
+
+
+def profile_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    profile = ensure_public_profile(conn, row["id"])
+    return {
+        "public_code": str(profile["public_code"]),
+        "avatar": str(profile["avatar"]),
+        "frame": str(profile["frame"]),
+        "url": f"/api/profile/{profile['public_code']}",
+        "avatars": PROFILE_AVATARS,
+        "frames": sorted(PROFILE_FRAMES.keys()),
+    }
+
+
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
     era_overview = get_era_overview(conn, row) if conn is not None else None
@@ -942,6 +976,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
     achievements = achievement_state(conn, row) if conn is not None else []
     referrals = referral_state(conn, row["id"]) if conn is not None else None
     gifts = gift_state(conn, row["id"], int(row["active_era"])) if conn is not None else None
+    profile = profile_state(conn, row) if conn is not None else None
     upgrades = []
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
@@ -1016,6 +1051,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
         "achievements": achievements,
         "referrals": referrals,
         "gifts": gifts,
+        "profile": profile,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -1556,6 +1592,71 @@ def set_nickname():
     return jsonify({"ok": True, "state": result})
 
 
+@app.get("/api/profile/<public_code>")
+def public_profile(public_code: str):
+    if len(public_code) > 64:
+        return api_error("Профиль не найден.", 404)
+    with db_connection() as conn:
+        profile = conn.execute(
+            """SELECT pp.avatar, pp.frame, p.nickname, p.total_earned, p.total_taps, p.active_era, p.id
+               FROM player_profiles pp JOIN players p ON p.id = pp.player_id
+               WHERE pp.public_code = ?""",
+            (public_code,),
+        ).fetchone()
+        if profile is None:
+            return api_error("Профиль не найден.", 404)
+        achievements = [
+            {"title": item["title"], "badge": item["badge"]}
+            for item in achievement_state(conn, conn.execute("SELECT * FROM players WHERE id = ?", (profile["id"],)).fetchone())
+            if item["unlocked"]
+        ]
+        cosmetics = [
+            item["item_code"] for item in conn.execute(
+                "SELECT item_code FROM winter_cosmetics WHERE player_id = ? ORDER BY purchased_at",
+                (profile["id"],),
+            ).fetchall()
+        ]
+        gifts = [
+            {"title": GIFT_CATALOG.get(item["gift_code"], {}).get("title", item["gift_code"]),
+             "icon": GIFT_CATALOG.get(item["gift_code"], {}).get("icon", "🎁"),
+             "rarity": item["rarity"]}
+            for item in conn.execute(
+                """SELECT gift_code, rarity FROM player_gifts
+                   WHERE receiver_id = ? AND kind = 'decor' AND status = 'collected'
+                   ORDER BY created_at DESC LIMIT 20""",
+                (profile["id"],),
+            ).fetchall()
+        ]
+    return jsonify({"ok": True, "profile": {
+        "nickname": profile["nickname"], "avatar": profile["avatar"], "frame": profile["frame"],
+        "era": int(profile["active_era"]), "total_earned": int(profile["total_earned"]),
+        "total_taps": int(profile["total_taps"]), "achievements": achievements,
+        "cosmetics": cosmetics, "gifts": gifts,
+    }})
+
+
+@app.post("/api/profile/update")
+def update_public_profile():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    avatar = str(payload.get("avatar", "☁️"))
+    frame = str(payload.get("frame", "cloud"))
+    if avatar not in PROFILE_AVATARS or frame not in PROFILE_FRAMES:
+        return api_error("Такое оформление профиля недоступно.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        if int(row["active_era"]) < PROFILE_FRAMES[frame]:
+            return jsonify({"ok": False, "error": "Рамка откроется в более поздней эпохе.", "state": make_state(row, conn)}), 409
+        ensure_public_profile(conn, player_id)
+        conn.execute("UPDATE player_profiles SET avatar = ?, frame = ?, updated_at = ? WHERE player_id = ?", (avatar, frame, time.time(), player_id))
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "state": result})
+
+
 @app.get("/api/leaderboard")
 def leaderboard():
     player_id = get_player_id()
@@ -1563,9 +1664,16 @@ def leaderboard():
         conn.execute("BEGIN IMMEDIATE")
         ensure_player(conn, player_id)
         rows = conn.execute("SELECT id, nickname, total_earned, total_taps FROM players ORDER BY total_earned DESC, total_taps DESC LIMIT 10").fetchall()
+        for item in rows:
+            ensure_public_profile(conn, str(item["id"]))
         my_rank = conn.execute("SELECT COUNT(*) + 1 AS rank FROM players WHERE total_earned > (SELECT total_earned FROM players WHERE id = ?)", (player_id,)).fetchone()["rank"]
+        profiles = {
+            item["player_id"]: item
+            for item in conn.execute("SELECT player_id, public_code, avatar, frame FROM player_profiles").fetchall()
+        }
     return jsonify({"ok": True,
-        "leaders": [{"rank": i + 1, "nickname": row["nickname"], "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]), "you": row["id"] == player_id} for i, row in enumerate(rows)],
+        "leaders": [{"rank": i + 1, "nickname": row["nickname"], "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]), "you": row["id"] == player_id,
+                     "profile_code": profiles[row["id"]]["public_code"], "avatar": profiles[row["id"]]["avatar"], "frame": profiles[row["id"]]["frame"]} for i, row in enumerate(rows)],
         "my_rank": int(my_rank)})
 
 
