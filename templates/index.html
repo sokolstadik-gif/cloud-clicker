@@ -28,6 +28,7 @@
 
     <nav class="main-tabs" aria-label="Разделы игры">
       <button class="tab-button active" type="button" data-tab="game" aria-selected="true">☁ Игра</button>
+      <button class="tab-button" type="button" data-tab="eras" aria-selected="false">🌌 Эпохи</button>
       <button class="tab-button" type="button" data-tab="combo" aria-selected="false">🃏 Комбо</button>
       <button class="tab-button" type="button" data-tab="cipher" aria-selected="false">🔐 Шифр</button>
       <button class="tab-button" type="button" data-tab="tasks" aria-selected="false">📋 Задания</button>
@@ -174,6 +175,29 @@
           <span class="section-caption" id="giftActiveCount">Активно 0 / 2 буста</span>
         </div>
         <div class="gift-inventory" id="giftInventory"><div class="loading-card panel">Загружаем подарки…</div></div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-eras" data-panel="eras" hidden>
+      <section class="section-block page-section">
+        <div class="section-title-row">
+          <div><p class="eyebrow">ТВОЁ ПУТЕШЕСТВИЕ</p><h1>Эпохи облачного мира</h1></div>
+          <span class="live-dot"><i></i> 4 ЭПОХИ</span>
+        </div>
+        <div class="era-panel panel" id="eraTabPanel" aria-live="polite">
+          <div class="era-panel-top">
+            <div><p class="eyebrow">ТЕКУЩАЯ ЭПОХА</p><h2 id="eraTabPanelTitle">Облачное королевство</h2><p id="eraTabCurrency">Валюта: Cloudcoin</p></div>
+            <span class="era-number" id="eraTabNumber">ЭПОХА 1 / 4</span>
+          </div>
+          <div class="era-progress-copy"><span id="eraTabRequirement">Условие следующей эпохи</span><b id="eraTabProgressText">0 / 5 000</b></div>
+          <div class="era-progress-track"><div id="eraTabProgressFill"></div></div>
+          <button class="primary-button era-transition" id="eraTabTransitionBtn" type="button" disabled>Перейти в следующую эпоху</button>
+          <div class="era-archive" id="eraTabArchive"></div>
+        </div>
+        <div class="challenge-intro panel">
+          <div class="challenge-icon">🔒</div>
+          <div><b>Переходы необратимы</b><p>Каждая эпоха получает отдельный баланс и улучшения. Прогресс прошлых эпох сохраняется в архиве и больше не изменяется.</p></div>
+        </div>
       </section>
     </section>
 
