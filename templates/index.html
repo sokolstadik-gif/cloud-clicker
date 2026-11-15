@@ -31,6 +31,7 @@
       <button class="tab-button" type="button" data-tab="combo" aria-selected="false">🃏 Комбо</button>
       <button class="tab-button" type="button" data-tab="cipher" aria-selected="false">🔐 Шифр</button>
       <button class="tab-button" type="button" data-tab="tasks" aria-selected="false">📋 Задания</button>
+      <button class="tab-button" type="button" data-tab="winter" aria-selected="false">❄ Новый год</button>
       <button class="tab-button" type="button" data-tab="boosts" aria-selected="false">⚡ Бусты</button>
       <button class="tab-button" type="button" data-tab="records" aria-selected="false">🏆 Рекорды</button>
       <button class="tab-button" type="button" data-tab="rewards" aria-selected="false">🎁 Награды</button>
@@ -144,6 +145,24 @@
         <div class="upgrade-grid" id="upgradeList">
           <div class="loading-card">Загружаем улучшения…</div>
         </div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-winter" data-panel="winter" hidden>
+      <section class="section-block page-section">
+        <div class="section-title-row">
+          <div><p class="eyebrow">ЗИМНЕЕ СОБЫТИЕ</p><h1>Новогодний календарь</h1></div>
+          <span class="level-pill" id="winterTicketCount">🎟 0 билетиков</span>
+        </div>
+        <div class="challenge-intro panel">
+          <div class="challenge-icon">🎁</div>
+          <div><b>31 день праздничных подарков</b><p>Заходи каждый день по UTC. Пропущенный день сгорает, забрать его позже нельзя. Билетики сохраняются и после завершения календаря.</p></div>
+        </div>
+        <div class="winter-calendar-status panel">
+          <div><span class="eyebrow">СЕГОДНЯШНИЙ ПОДАРОК</span><h2 id="winterDayTitle">День 1</h2><p id="winterDayDescription">Получи билетики за вход</p></div>
+          <button class="primary-button" id="winterClaimBtn" type="button">Забрать подарок</button>
+        </div>
+        <div class="winter-days" id="winterDays" aria-label="31-дневный календарь"></div>
       </section>
     </section>
 
