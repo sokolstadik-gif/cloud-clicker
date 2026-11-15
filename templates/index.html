@@ -10,6 +10,7 @@
   <title>Cloud Clicker</title>
   <link rel="manifest" href="/static/manifest.json">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='5') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='winter.css', v='4') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -27,9 +28,12 @@
 
     <nav class="main-tabs" aria-label="Разделы игры">
       <button class="tab-button active" type="button" data-tab="game" aria-selected="true">☁ Игра</button>
+      <button class="tab-button" type="button" data-tab="eras" aria-selected="false">🌌 Эпохи</button>
       <button class="tab-button" type="button" data-tab="combo" aria-selected="false">🃏 Комбо</button>
       <button class="tab-button" type="button" data-tab="cipher" aria-selected="false">🔐 Шифр</button>
       <button class="tab-button" type="button" data-tab="tasks" aria-selected="false">📋 Задания</button>
+      <button class="tab-button" type="button" data-tab="winter" aria-selected="false">❄ Новый год</button>
+      <button class="tab-button" type="button" data-tab="gifts" aria-selected="false">🎁 Подарки</button>
       <button class="tab-button" type="button" data-tab="boosts" aria-selected="false">⚡ Бусты</button>
       <button class="tab-button" type="button" data-tab="records" aria-selected="false">🏆 Рекорды</button>
       <button class="tab-button" type="button" data-tab="rewards" aria-selected="false">🎁 Награды</button>
@@ -38,24 +42,34 @@
     </nav>
 
     <section class="tab-panel active" id="tab-game" data-panel="game">
+      <section class="era-panel panel" id="eraPanel" aria-live="polite">
+        <div class="era-panel-top">
+          <div><p class="eyebrow">ТВОЙ ПУТЬ ПО ЭПОХАМ</p><h2 id="eraPanelTitle">Облачное королевство</h2><p id="eraCurrency">Валюта эпохи: Cloudcoin</p></div>
+          <span class="era-number" id="eraNumber">ЭПОХА 1 / 4</span>
+        </div>
+        <div class="era-progress-copy"><span id="eraRequirement">Следующая эпоха: 5 000 тапов в первой эпохе</span><b id="eraProgressText">0 / 5 000</b></div>
+        <div class="era-progress-track"><div id="eraProgressFill"></div></div>
+        <button class="primary-button era-transition" id="eraTransitionBtn" type="button" disabled>Перейти в новую эпоху</button>
+        <div class="era-archive" id="eraArchive"></div>
+      </section>
       <section class="hero-grid">
         <section class="game-card panel">
           <div class="card-heading">
             <div>
               <p class="eyebrow">ТВОЯ ОБЛАЧНАЯ КОПИЛКА</p>
-              <h1>Cloudcoin</h1>
+              <h1 id="eraName">Cloudcoin</h1>
             </div>
             <span class="level-pill" id="levelPill">Уровень 1</span>
           </div>
 
           <div class="coin-total"><span class="coin-symbol">☁</span><span id="coins">0</span></div>
-          <div class="currency-label">CLOUDCOIN</div>
+          <div class="currency-label" id="currencyLabel">CLOUDCOIN</div>
           <div class="income-row">
             <span>За тап <b id="tapPower">+1</b></span>
             <span>В секунду <b id="passiveIncome">+0</b></span>
           </div>
 
-          <button class="cloud-button" id="tapBtn" type="button" aria-label="Click the cloud to earn Cloudcoin">
+          <button class="cloud-button" id="tapBtn" type="button" aria-label="Нажми на облако, чтобы заработать монеты">
             <span class="tap-ring"></span>
             <svg class="cloud-art" viewBox="0 0 220 150" role="img" aria-label="Облако для нажатий">
               <defs>
@@ -80,7 +94,14 @@
               <path d="M39 103c18 10 38 11 55 5" fill="none" stroke="#ffffff" stroke-opacity=".45" stroke-width="5" stroke-linecap="round"/>
               <path d="m184 18 4 9 9 4-9 4-4 9-4-9-9-4 9-4 4-9Z" fill="#b9e8ff"/>
               <circle cx="30" cy="39" r="4" fill="#8fd4fa"/>
+              <g class="santa-hat" transform="translate(77 0) rotate(-9 30 18)" aria-hidden="true">
+                <path d="M4 25C8 11 18 2 31 2c13 0 23 9 27 23H4Z" fill="#d94b55" stroke="#a92f3b" stroke-width="2"/>
+                <path d="M7 22c14 5 36 5 52 0l4 8c-17 7-43 7-60 0l4-8Z" fill="#fff8ed" stroke="#dcecf4" stroke-width="2"/>
+                <circle cx="58" cy="5" r="7" fill="#fff8ed" stroke="#dcecf4" stroke-width="2"/>
+                <path d="M15 17c7-8 15-12 24-12" fill="none" stroke="#f58a8d" stroke-width="3" stroke-linecap="round" opacity=".75"/>
+              </g>
             </svg>
+            <span class="equipped-cosmetic" id="equippedCosmetic" aria-hidden="true"></span>
             <span class="tap-hint">CLICK</span>
           </button>
 
@@ -97,7 +118,7 @@
             <div class="daily-copy">
               <p class="eyebrow">КАЖДЫЙ ДЕНЬ</p>
               <h2>Ежедневный бонус</h2>
-              <p>Забери Cloudcoin за вход</p>
+              <p>Забери валюту текущей эпохи за вход</p>
             </div>
             <button class="primary-button" id="dailyBtn" type="button">Забрать +250</button>
           </section>
@@ -111,7 +132,7 @@
           </section>
           <section class="mini-tip panel">
             <span class="mini-tip-icon">☁</span>
-            <div><b>Каждый тап приближает к цели</b><p>Копи Cloudcoin, открывай улучшения и забирай награды за достижения.</p></div>
+            <div><b>Каждый тап приближает к цели</b><p>Копи валюту эпохи, открывай улучшения и забирай награды за достижения.</p></div>
           </section>
         </aside>
       </section>
@@ -122,11 +143,94 @@
             <p class="eyebrow">РАЗВИВАЙ СВОЁ ОБЛАКО</p>
             <h2>Улучшения</h2>
           </div>
-          <span class="section-caption">Покупай за Cloudcoin</span>
+          <span class="section-caption">Покупай за валюту эпохи</span>
         </div>
         <div class="upgrade-grid" id="upgradeList">
           <div class="loading-card">Загружаем улучшения…</div>
         </div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-gifts" data-panel="gifts" hidden>
+      <section class="section-block page-section">
+        <div class="section-title-row">
+          <div><p class="eyebrow">ДРУЗЬЯ И ПОДАРКИ</p><h1>Подарки облакам</h1></div>
+          <span class="level-pill" id="giftDailyLimit">0 / 5 сегодня</span>
+        </div>
+        <div class="challenge-intro panel">
+          <div class="challenge-icon">🎁</div>
+          <div><b>Делись праздничным настроением</b><p>Введи реферальный код друга из его личной ссылки. Подарки не переводят валюту. Лимит отправки зависит от эпохи.</p></div>
+        </div>
+        <form class="gift-send-panel panel" id="giftSendForm">
+          <label for="giftRecipientCode">Код друга</label>
+          <input id="giftRecipientCode" type="text" maxlength="64" placeholder="Код из ссылки ?ref=..." required>
+          <label for="giftSelect">Выбери подарок</label>
+          <select id="giftSelect" required></select>
+          <label for="giftNote">Поздравление (необязательно)</label>
+          <input id="giftNote" type="text" maxlength="120" placeholder="С праздником!">
+          <button class="primary-button" id="giftSendBtn" type="submit">Отправить подарок</button>
+          <p class="privacy-note">Отправлять подарки можно только игрокам, открывшим игру через Telegram. Декор попадёт в коллекцию, буст можно активировать вручную.</p>
+        </form>
+        <div class="section-title-row" style="margin-top:24px">
+          <div><p class="eyebrow">ТВОЯ КОЛЛЕКЦИЯ</p><h2>Полученные подарки</h2></div>
+          <span class="section-caption" id="giftActiveCount">Активно 0 / 2 буста</span>
+        </div>
+        <div class="gift-inventory" id="giftInventory"><div class="loading-card panel">Загружаем подарки…</div></div>
+        <div class="section-title-row" style="margin-top:24px">
+          <div><p class="eyebrow">ТВОИ ПОЗДРАВЛЕНИЯ</p><h2>Отправленные подарки</h2></div>
+        </div>
+        <div class="gift-sent-history" id="giftSentHistory"><div class="loading-card panel">Загружаем историю…</div></div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-eras" data-panel="eras" hidden>
+      <section class="section-block page-section">
+        <div class="section-title-row">
+          <div><p class="eyebrow">ТВОЁ ПУТЕШЕСТВИЕ</p><h1>Эпохи облачного мира</h1></div>
+          <span class="live-dot"><i></i> 4 ЭПОХИ</span>
+        </div>
+        <div class="era-panel panel" id="eraTabPanel" aria-live="polite">
+          <div class="era-panel-top">
+            <div><p class="eyebrow">ТЕКУЩАЯ ЭПОХА</p><h2 id="eraTabPanelTitle">Облачное королевство</h2><p id="eraTabCurrency">Валюта: Cloudcoin</p></div>
+            <span class="era-number" id="eraTabNumber">ЭПОХА 1 / 4</span>
+          </div>
+          <div class="era-progress-copy"><span id="eraTabRequirement">Условие следующей эпохи</span><b id="eraTabProgressText">0 / 5 000</b></div>
+          <div class="era-progress-track"><div id="eraTabProgressFill"></div></div>
+          <button class="primary-button era-transition" id="eraTabTransitionBtn" type="button" disabled>Перейти в следующую эпоху</button>
+          <div class="era-archive" id="eraTabArchive"></div>
+        </div>
+        <div class="challenge-intro panel">
+          <div class="challenge-icon">🔒</div>
+          <div><b>Переходы необратимы</b><p>Каждая эпоха получает отдельный баланс и улучшения. Прогресс прошлых эпох сохраняется в архиве и больше не изменяется.</p></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="tab-winter" data-panel="winter" hidden>
+      <section class="section-block page-section">
+        <div class="section-title-row">
+          <div><p class="eyebrow">ЗИМНЕЕ СОБЫТИЕ</p><h1>Новогодний календарь</h1></div>
+          <span class="level-pill" id="winterTicketCount">🎟 0 билетиков</span>
+        </div>
+        <div class="challenge-intro panel">
+          <div class="challenge-icon">🎁</div>
+          <div><b>31 день праздничных подарков</b><p>Заходи каждый день по UTC. Пропущенный день сгорает, забрать его позже нельзя. Билетики сохраняются и после завершения календаря.</p></div>
+        </div>
+        <div class="winter-calendar-status panel">
+          <div><span class="eyebrow">СЕГОДНЯШНИЙ ПОДАРОК</span><h2 id="winterDayTitle">День 1</h2><p id="winterDayDescription">Получи билетики за вход</p></div>
+          <button class="primary-button" id="winterClaimBtn" type="button">Забрать подарок</button>
+        </div>
+        <div class="section-title-row" style="margin-top:24px">
+          <div><p class="eyebrow">ЗИМНИЕ ИСПЫТАНИЯ</p><h2>Праздничные задания</h2></div>
+          <span class="section-caption">Награды в билетиках</span>
+        </div>
+        <div class="winter-quests" id="winterQuests"><div class="loading-card panel">Загружаем зимние задания…</div></div>
+        <div class="winter-days" id="winterDays" aria-label="31-дневный календарь"></div>
+        <div class="section-title-row" style="margin-top:28px">
+          <div><p class="eyebrow">ПРАЗДНИЧНАЯ КОЛЛЕКЦИЯ</p><h2>Магазин билетиков</h2></div>
+          <span class="section-caption">1 240 билетиков за все 31 день</span>
+        </div>
+        <div class="winter-shop-grid" id="winterShop"><div class="loading-card panel">Загружаем зимнюю коллекцию…</div></div>
       </section>
     </section>
 
@@ -160,7 +264,7 @@
             <input id="cipherAnswer" type="text" maxlength="12" autocomplete="off" placeholder="ТВОЙ ОТВЕТ" aria-label="Ответ на шифр">
             <button class="primary-button" id="cipherSubmitBtn" type="submit">Проверить</button>
           </form>
-          <p class="cipher-status" id="cipherStatus">Награда за правильный ответ — 2 000 Cloudcoin.</p>
+          <p class="cipher-status" id="cipherStatus">Награда за правильный ответ — 2 000 монет текущей эпохи.</p>
         </div>
       </section>
     </section>
@@ -178,7 +282,7 @@
         <div class="section-title-row"><div><p class="eyebrow">ВРЕМЕННОЕ УСИЛЕНИЕ</p><h1>Бустеры</h1></div><span class="level-pill">Power-up</span></div>
         <div class="boost-grid">
           <article class="boost-card panel">
-            <div class="boost-icon">⚡</div><div><h2>Турбо-облако</h2><p>Удваивает Cloudcoin за каждый тап на 30 секунд. Можно продлить действующий эффект.</p></div>
+            <div class="boost-icon">⚡</div><div><h2>Турбо-облако</h2><p>Удваивает монеты за каждый тап на 30 секунд. Можно продлить действующий эффект.</p></div>
             <div class="boost-bottom"><span id="turboStatus">Не активно</span><button class="primary-button" id="turboBtn" type="button">Активировать · 500 CC</button></div>
           </article>
           <article class="boost-card panel">
@@ -186,7 +290,7 @@
             <div class="boost-bottom"><span id="energyBoostStatus">Заполни шкалу энергии</span><button class="primary-button" id="energyBoostBtn" type="button">Восстановить · 250 CC</button></div>
           </article>
         </div>
-        <p class="privacy-note">Бустеры покупаются за Cloudcoin. Их действие проверяется сервером.</p>
+        <p class="privacy-note">Бустеры покупаются за валюту текущей эпохи. Их действие проверяется сервером.</p>
       </section>
     </section>
 
@@ -197,6 +301,16 @@
           <span class="live-dot"><i></i> ТОП-10</span>
         </div>
         <div class="rank-summary panel"><span>Твоё место в рейтинге</span><strong id="myRank">—</strong></div>
+        <div class="leaderboard-filter panel">
+          <label for="leaderboardSort">Категория рейтинга</label>
+          <select id="leaderboardSort">
+            <option value="earned">Заработанные монеты</option>
+            <option value="taps">Количество тапов</option>
+            <option value="invites">Приглашённые друзья</option>
+            <option value="achievements">Достижения</option>
+            <option value="eras">Открытые эпохи</option>
+          </select>
+        </div>
         <div class="leaderboard panel" id="leaderboard"><div class="loading-card">Загружаем рейтинг…</div></div>
         <p class="privacy-note">Рейтинг общий для всех игроков этого сайта. Результаты сохраняются на сервере.</p>
       </section>
@@ -210,9 +324,14 @@
         </div>
         <div class="reward-intro panel">
           <div class="reward-big-icon">🎁</div>
-          <div><b>Тапай и получай Cloudcoin</b><p>Достигай целей по количеству нажатий и забирай награды. Каждую награду можно получить только один раз.</p></div>
+          <div><b>Тапай и получай монеты</b><p>Достигай целей по количеству нажатий и забирай награды. Каждую награду можно получить только один раз.</p></div>
         </div>
         <div class="reward-list" id="rewardsList"><div class="loading-card panel">Загружаем награды…</div></div>
+        <div class="section-title-row" style="margin-top:28px">
+          <div><p class="eyebrow">ОСОБЫЕ ЦЕЛИ</p><h2>Достижения</h2></div>
+          <span class="section-caption">Награды за прогресс</span>
+        </div>
+        <div class="reward-list" id="achievementsList"><div class="loading-card panel">Загружаем достижения…</div></div>
       </section>
     </section>
 
@@ -220,27 +339,49 @@
       <section class="section-block page-section">
         <div class="section-title-row"><div><p class="eyebrow">ТВОЙ ПРОГРЕСС</p><h1>Статистика</h1></div><span class="level-pill" id="statsLevel">Уровень 1</span></div>
         <div class="stats-grid">
-          <article class="stat-tile panel"><span>Баланс</span><strong id="statsBalance">0</strong><small>Cloudcoin</small></article>
-          <article class="stat-tile panel"><span>Всего заработано</span><strong id="statsEarned">0</strong><small>Cloudcoin за всё время</small></article>
+          <article class="stat-tile panel"><span>Баланс</span><strong id="statsBalance">0</strong><small>Валюта эпохи</small></article>
+          <article class="stat-tile panel"><span>Всего заработано</span><strong id="statsEarned">0</strong><small>За всё время</small></article>
           <article class="stat-tile panel"><span>Всего тапов</span><strong id="statsTaps">0</strong><small>нажатий на облако</small></article>
-          <article class="stat-tile panel"><span>Сила тапа</span><strong id="statsTapPower">+1</strong><small>Cloudcoin за нажатие</small></article>
-          <article class="stat-tile panel"><span>Пассивный доход</span><strong id="statsPassive">+0</strong><small>Cloudcoin в секунду</small></article>
+          <article class="stat-tile panel"><span>Сила тапа</span><strong id="statsTapPower">+1</strong><small>За нажатие</small></article>
+          <article class="stat-tile panel"><span>Пассивный доход</span><strong id="statsPassive">+0</strong><small>В секунду</small></article>
           <article class="stat-tile panel"><span>Уровни улучшений</span><strong id="statsUpgrades">0</strong><small>куплено уровней</small></article>
           <article class="stat-tile panel"><span>Энергия</span><strong id="statsEnergy">100 / 100</strong><small id="statsRegen">Восстановление 2 ед./сек.</small></article>
           <article class="stat-tile panel"><span>Место в рейтинге</span><strong id="statsRank">—</strong><small>среди игроков сайта</small></article>
         </div>
+        <section class="profile-editor panel">
+          <div class="section-title-row"><div><p class="eyebrow">ТВОЯ ПУБЛИЧНАЯ СТРАНИЦА</p><h2>Профиль игрока</h2></div><span class="level-pill">Публичный</span></div>
+          <div class="profile-edit-grid">
+            <label>Аватар<select id="profileAvatar"><option>☁️</option><option>🎅</option><option>❄️</option><option>🌌</option><option>👑</option><option>✨</option></select></label>
+            <label>Рамка<select id="profileFrame"><option value="cloud">Облачная</option><option value="winter">Зимняя</option><option value="cosmic">Космическая</option><option value="royal">Королевская</option><option value="divine">Божественная</option></select></label>
+            <label>Украшение облака<select id="profileCosmetic"><option value="">Без украшения</option></select></label>
+          </div>
+          <div class="referral-link-row"><input id="publicProfileLink" type="text" readonly aria-label="Ссылка на публичный профиль"><button class="secondary-button" id="copyProfileBtn" type="button">Копировать</button></div>
+          <button class="primary-button" id="saveProfileBtn" type="button">Сохранить оформление</button>
+          <p class="privacy-note">Публично показываются ник, эпоха, достижения и коллекция. Telegram ID и личные данные не публикуются.</p>
+        </section>
+        <section class="referral-panel panel">
+          <div class="section-title-row"><div><p class="eyebrow">ПРИГЛАШАЙ ДРУЗЕЙ</p><h2>Реферальная программа</h2></div><span class="level-pill">+1 000 за друга</span></div>
+          <p class="privacy-note">Поделись личной ссылкой. Награда начислится, когда приглашённый игрок войдёт через Telegram и сделает 100 нажатий.</p>
+          <div class="referral-link-row"><input id="referralLink" type="text" readonly aria-label="Твоя реферальная ссылка"><button class="secondary-button" id="copyReferralBtn" type="button">Копировать</button></div>
+          <div class="referral-stats">
+            <div><span>Приглашено</span><b id="referralInvited">0</b></div>
+            <div><span>Активировано</span><b id="referralActive">0</b></div>
+            <div><span>Ожидают</span><b id="referralPending">0</b></div>
+            <div><span>Получено наград</span><b id="referralRewards">0</b></div>
+          </div>
+        </section>
       </section>
     </section>
 
     <section class="tab-panel" id="tab-shop" data-panel="shop" hidden>
       <section class="section-block page-section">
         <div class="section-title-row">
-          <div><p class="eyebrow">ПОДДЕРЖИ CLOUD CLICKER</p><h1>Магазин Cloudcoin</h1></div>
+          <div><p class="eyebrow">ПОДДЕРЖИ CLOUD CLICKER</p><h1>Магазин игровой валюты</h1></div>
           <span class="level-pill">⭐ Telegram Stars</span>
         </div>
         <div class="challenge-intro panel">
           <div class="challenge-icon">💎</div>
-          <div><b>Покупка Cloudcoin</b><p>Оплата проходит через встроенную систему Telegram Stars. Начисление выполняется сервером только после подтверждения платежа от Telegram.</p></div>
+          <div><b>Покупка игровой валюты</b><p>Оплата проходит через встроенную систему Telegram Stars. Начисление выполняется сервером только после подтверждения платежа от Telegram.</p></div>
         </div>
         <div class="shop-grid" id="shopPackages"><div class="loading-card panel">Загружаем наборы…</div></div>
         <p class="privacy-note">Цифровые товары внутри Telegram Mini Apps продаются за Telegram Stars (XTR). Не отправляй переводы вручную — покупай только через кнопку оплаты.</p>
@@ -276,7 +417,19 @@
     </form>
   </dialog>
 
+  <dialog class="creator-dialog profile-dialog" id="profileDialog" aria-labelledby="profileDialogTitle">
+    <form method="dialog" class="creator-dialog-inner">
+      <button class="dialog-close" aria-label="Закрыть" value="close">×</button>
+      <div class="creator-avatar" id="profileDialogAvatar">☁️</div>
+      <p class="eyebrow">ПРОФИЛЬ ИГРОКА</p>
+      <h2 id="profileDialogTitle">Cloud</h2>
+      <p class="creator-handle" id="profileDialogEra">Эпоха 1</p>
+      <div class="profile-public-stats" id="profileDialogStats"></div>
+      <div class="profile-public-collection" id="profileDialogCollection"></div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="{{ url_for('static', filename='app.js', v='5') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='10') }}" defer></script>
 </body>
 </html>

@@ -16,11 +16,15 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qsl
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, g, jsonify, render_template, request, session
+
+from new_year_rules import (
+    ERA_NAMES, era_power_multiplier, era_unlock_progress, winter_calendar_status, winter_ticket_reward,
+)
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -32,12 +36,13 @@ TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 REQUIRE_TELEGRAM_AUTH = os.environ.get("REQUIRE_TELEGRAM_AUTH", "0") == "1"
 TELEGRAM_INIT_DATA_MAX_AGE = int(os.environ.get("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 
 # Telegram Stars (XTR) are the supported in-app payment currency for digital goods.
 STAR_PACKAGES = {
-    "starter": {"title": "Cloud Starter", "description": "10 000 Cloudcoin для Cloud Clicker", "stars": 25, "coins": 10_000},
-    "pro": {"title": "Cloud Pro", "description": "60 000 Cloudcoin для Cloud Clicker", "stars": 100, "coins": 60_000},
-    "vip": {"title": "Cloud VIP", "description": "200 000 Cloudcoin для Cloud Clicker", "stars": 250, "coins": 200_000},
+    "starter": {"title": "Cloud Starter", "description": "10 000 игровых монет для Cloud Clicker", "stars": 25, "coins": 10_000},
+    "pro": {"title": "Cloud Pro", "description": "60 000 игровых монет для Cloud Clicker", "stars": 100, "coins": 60_000},
+    "vip": {"title": "Cloud VIP", "description": "200 000 игровых монет для Cloud Clicker", "stars": 250, "coins": 200_000},
 }
 
 app = Flask(__name__)
@@ -293,10 +298,117 @@ def init_db() -> None:
             "radar_level": "INTEGER NOT NULL DEFAULT 0",
             "network_level": "INTEGER NOT NULL DEFAULT 0",
             "turbo_until": "REAL NOT NULL DEFAULT 0",
+            "active_era": "INTEGER NOT NULL DEFAULT 1",
         }
         for column, definition in migrations.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_era_progress (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            era INTEGER NOT NULL,
+            balance INTEGER NOT NULL DEFAULT 0,
+            earned INTEGER NOT NULL DEFAULT 0,
+            taps INTEGER NOT NULL DEFAULT 0,
+            upgrade_purchases INTEGER NOT NULL DEFAULT 0,
+            levels_json TEXT NOT NULL DEFAULT '{}',
+            last_balance INTEGER NOT NULL DEFAULT 0,
+            last_taps INTEGER NOT NULL DEFAULT 0,
+            last_upgrade_levels INTEGER NOT NULL DEFAULT 0,
+            opened_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (player_id, era)
+        )""")
+        for player in conn.execute("SELECT * FROM players").fetchall():
+            levels = {key: int(player[column]) for key, column in LEVEL_COLUMNS.items()}
+            conn.execute(
+                """INSERT OR IGNORE INTO player_era_progress
+                   (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                    last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+                   VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (player["id"], int(player["coins"]), int(player["total_earned"]),
+                 int(player["total_taps"]), sum(levels.values()), json.dumps(levels),
+                 int(player["coins"]), int(player["total_taps"]), sum(levels.values()),
+                 float(player["created_at"]), time.time()),
+            )
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_event_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            event_start TEXT NOT NULL
+        )""")
+        conn.execute("INSERT OR IGNORE INTO winter_event_settings (id, event_start) VALUES (1, ?)", (current_utc_date(),))
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_event_players (
+            player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            tickets INTEGER NOT NULL DEFAULT 0
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_calendar_claims (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            day_number INTEGER NOT NULL,
+            reward INTEGER NOT NULL,
+            claimed_at REAL NOT NULL,
+            PRIMARY KEY (player_id, day_number)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_profiles (
+            player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            public_code TEXT NOT NULL UNIQUE,
+            avatar TEXT NOT NULL DEFAULT '☁️',
+            frame TEXT NOT NULL DEFAULT 'cloud',
+            equipped_cosmetic TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        )""")
+        profile_columns = {item[1] for item in conn.execute("PRAGMA table_info(player_profiles)").fetchall()}
+        if "equipped_cosmetic" not in profile_columns:
+            conn.execute("ALTER TABLE player_profiles ADD COLUMN equipped_cosmetic TEXT NOT NULL DEFAULT ''")
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_quest_claims (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            quest_id TEXT NOT NULL,
+            reward INTEGER NOT NULL,
+            claimed_at REAL NOT NULL,
+            PRIMARY KEY (player_id, quest_id)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_cosmetics (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            item_code TEXT NOT NULL,
+            purchased_at REAL NOT NULL,
+            tickets_paid INTEGER NOT NULL,
+            PRIMARY KEY (player_id, item_code)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_achievement_claims (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            achievement_id TEXT NOT NULL,
+            reward INTEGER NOT NULL,
+            claimed_at REAL NOT NULL,
+            PRIMARY KEY (player_id, achievement_id)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS referral_codes (
+            player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            code TEXT NOT NULL UNIQUE,
+            created_at REAL NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS referrals (
+            invitee_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            inviter_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            reward INTEGER NOT NULL DEFAULT 1000,
+            created_at REAL NOT NULL,
+            activated_at REAL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_gifts (
+            id TEXT PRIMARY KEY,
+            sender_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            receiver_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            gift_code TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            rarity TEXT NOT NULL,
+            effect TEXT,
+            duration_seconds INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            activated_at REAL,
+            expires_at REAL,
+            status TEXT NOT NULL DEFAULT 'inventory',
+            note TEXT NOT NULL DEFAULT ''
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_player_gifts_receiver ON player_gifts(receiver_id, status, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_player_gifts_sender_date ON player_gifts(sender_id, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_referrals_inviter ON referrals(inviter_id, status)")
         conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
 
@@ -415,6 +527,7 @@ def validate_telegram_init_data(raw_init_data: str) -> dict[str, Any]:
         "username": str(user.get("username") or "")[:64],
         "first_name": str(user.get("first_name") or "")[:128],
         "last_name": str(user.get("last_name") or "")[:128],
+        "start_param": str(fields.get("start_param") or "")[:128],
     }
 
 
@@ -527,11 +640,13 @@ def energy_regen(row: sqlite3.Row) -> float:
 
 
 def tap_power(row: sqlite3.Row) -> int:
-    return 1 + int(row["tap_level"]) + int(row["network_level"]) * 2
+    multiplier = era_power_multiplier(int(row["active_era"]))
+    return multiplier * (1 + int(row["tap_level"]) + int(row["network_level"]) * 2)
 
 
 def passive_income(row: sqlite3.Row) -> int:
-    return int(row["auto_level"]) + int(row["lab_level"]) * 2 + int(row["radar_level"]) * 5
+    multiplier = era_power_multiplier(int(row["active_era"]))
+    return multiplier * (int(row["auto_level"]) + int(row["lab_level"]) * 2 + int(row["radar_level"]) * 5)
 
 
 def upgrade_cost(upgrade_id: str, level: int) -> int:
@@ -539,13 +654,86 @@ def upgrade_cost(upgrade_id: str, level: int) -> int:
     return int(round(item["base_cost"] * (item["growth"] ** level)))
 
 
+def sync_era_progress(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    """Accumulate server-observed per-era deltas without altering lifetime totals."""
+    era = int(row["active_era"])
+    levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
+    level_total = sum(levels.values())
+    saved = conn.execute(
+        "SELECT * FROM player_era_progress WHERE player_id = ? AND era = ?",
+        (row["id"], era),
+    ).fetchone()
+    now = time.time()
+    if saved is None:
+        conn.execute(
+            """INSERT INTO player_era_progress
+               (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+               VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?)""",
+            (row["id"], era, int(row["coins"]), json.dumps(levels), int(row["coins"]),
+             int(row["total_taps"]), level_total, now, now),
+        )
+        saved = conn.execute(
+            "SELECT * FROM player_era_progress WHERE player_id = ? AND era = ?",
+            (row["id"], era),
+        ).fetchone()
+    balance = int(row["coins"])
+    taps = int(row["total_taps"])
+    earned = int(saved["earned"]) + max(0, balance - int(saved["last_balance"]))
+    era_taps = int(saved["taps"]) + max(0, taps - int(saved["last_taps"]))
+    purchases = int(saved["upgrade_purchases"]) + max(0, level_total - int(saved["last_upgrade_levels"]))
+    conn.execute(
+        """UPDATE player_era_progress SET balance = ?, earned = ?, taps = ?,
+           upgrade_purchases = ?, levels_json = ?, last_balance = ?, last_taps = ?,
+           last_upgrade_levels = ?, updated_at = ? WHERE player_id = ? AND era = ?""",
+        (balance, earned, era_taps, purchases, json.dumps(levels), balance, taps,
+         level_total, now, row["id"], era),
+    )
+    return {"era": era, "balance": balance, "earned": earned, "taps": era_taps,
+            "upgrade_purchases": purchases, "levels": levels}
+
+
+def get_era_overview(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    current = sync_era_progress(conn, row)
+    saved = {}
+    for item in conn.execute(
+        "SELECT era, balance, earned, taps, upgrade_purchases, levels_json FROM player_era_progress WHERE player_id = ?",
+        (row["id"],),
+    ).fetchall():
+        saved[int(item["era"])] = item
+    unlock = era_unlock_progress(
+        current["era"],
+        era1_taps=int(saved.get(1)["taps"]) if saved.get(1) else 0,
+        era2_upgrade_purchases=int(saved.get(2)["upgrade_purchases"]) if saved.get(2) else 0,
+        era2_earned=int(saved.get(2)["earned"]) if saved.get(2) else 0,
+        era3_earned=int(saved.get(3)["earned"]) if saved.get(3) else 0,
+    )
+    return {
+        "current": current["era"],
+        "name": ERA_NAMES[current["era"]][0],
+        "currency": ERA_NAMES[current["era"]][1],
+        "progress": unlock,
+        "archive": [
+            {"era": era, "name": ERA_NAMES[era][0], "currency": ERA_NAMES[era][1],
+             "balance": int(saved[era]["balance"]), "earned": int(saved[era]["earned"]),
+             "taps": int(saved[era]["taps"]),
+             "upgrade_purchases": int(saved[era]["upgrade_purchases"]),
+             "levels": json.loads(saved[era]["levels_json"]),
+             "completed": era < current["era"]}
+            for era in sorted(saved)
+        ],
+    }
+
+
 def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None = None) -> sqlite3.Row:
     """Apply passive income and energy regeneration before each game action."""
     now = now if now is not None else time.time()
+    gift_effects = active_gift_effects(conn, row["id"], now)
     energy_elapsed = max(0.0, min(now - float(row["last_energy_at"]), 24 * 60 * 60))
     energy = min(max_energy(row), float(row["energy"]) + energy_elapsed * energy_regen(row))
     active_elapsed = max(0.0, min(now - float(row["last_active_at"]), OFFLINE_CAP_SECONDS))
-    passive_total = active_elapsed * passive_income(row) + float(row["passive_fraction"])
+    passive_rate = passive_income(row) * (2 if gift_effects["passive_double"] else 1)
+    passive_total = active_elapsed * passive_rate + float(row["passive_fraction"])
     passive_added = int(passive_total)
     passive_fraction = passive_total - passive_added
     conn.execute(
@@ -555,18 +743,334 @@ def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None
            WHERE id = ?""",
         (energy, passive_fraction, now, now, passive_added, passive_added, row["id"]),
     )
-    return conn.execute("SELECT * FROM players WHERE id = ?", (row["id"],)).fetchone()
+    updated = conn.execute("SELECT * FROM players WHERE id = ?", (row["id"],)).fetchone()
+    sync_era_progress(conn, updated)
+    return updated
+
+
+def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    conn.execute("INSERT OR IGNORE INTO winter_event_players (player_id, tickets) VALUES (?, 0)", (row["id"],))
+    settings = conn.execute("SELECT event_start FROM winter_event_settings WHERE id = 1").fetchone()
+    event_start = date.fromisoformat(str(settings["event_start"]))
+    today = date.fromisoformat(current_utc_date())
+    calendar = winter_calendar_status(event_start, today)
+    day_number = int(calendar["day"])
+    claim = conn.execute(
+        "SELECT reward FROM winter_calendar_claims WHERE player_id = ? AND day_number = ?",
+        (row["id"], day_number),
+    ).fetchone() if calendar["active"] else None
+    player = conn.execute("SELECT tickets FROM winter_event_players WHERE player_id = ?", (row["id"],)).fetchone()
+    owned = {item["item_code"] for item in conn.execute("SELECT item_code FROM winter_cosmetics WHERE player_id = ?", (row["id"],)).fetchall()}
+    return {
+        "start_date": event_start.isoformat(),
+        "calendar": {
+            **calendar,
+            "claimed_today": claim is not None,
+            "today_reward": winter_ticket_reward(day_number) if calendar["active"] else 0,
+        },
+        "tickets": int(player["tickets"]),
+        "quests": winter_quest_state(conn, row["id"], event_start.isoformat()),
+        "shop": [
+            {"code": code, **item, "owned": code in owned, "available": int(row["active_era"]) >= item["era_required"]}
+            for code, item in WINTER_SHOP.items()
+        ],
+        "claimed_days": [
+            int(item["day_number"])
+            for item in conn.execute(
+                "SELECT day_number FROM winter_calendar_claims WHERE player_id = ? ORDER BY day_number",
+                (row["id"],),
+            ).fetchall()
+        ],
+    }
+
+
+WINTER_SHOP = {
+    "era1_santa_hat": {"title": "Золотая шапка Санты", "icon": "🎅", "description": "Праздничный образ Облачного королевства", "era_required": 1, "price": 80},
+    "era2_cosmic_snowflake": {"title": "Космическая снежинка", "icon": "❄️", "description": "Сияющий знак Космических облаков", "era_required": 2, "price": 120},
+    "era3_royal_ice_crown": {"title": "Королевская ледяная корона", "icon": "👑", "description": "Символ Небесной империи", "era_required": 3, "price": 180},
+    "era4_winter_wings": {"title": "Крылья зимнего света", "icon": "🪽", "description": "Легендарное украшение Божественного измерения", "era_required": 4, "price": 240},
+    "legendary_new_year_cloud": {"title": "Легендарное новогоднее облако", "icon": "🌌", "description": "Главная награда зимнего события", "era_required": 4, "price": 500},
+}
+
+
+WINTER_QUESTS = [
+    {"id": "calendar_7", "title": "Первая неделя зимы", "description": "Получи подарки за 7 дней календаря", "metric": "calendar_days", "target": 7, "reward": 25, "icon": "📅"},
+    {"id": "calendar_15", "title": "Постоянный гость", "description": "Получи подарки за 15 дней календаря", "metric": "calendar_days", "target": 15, "reward": 50, "icon": "❄️"},
+    {"id": "calendar_31", "title": "Хранитель зимы", "description": "Получи все 31 ежедневный подарок", "metric": "calendar_days", "target": 31, "reward": 100, "icon": "🏆"},
+    {"id": "gift_send_3", "title": "Щедрое облако", "description": "Отправь 3 подарка друзьям", "metric": "gifts_sent", "target": 3, "reward": 40, "icon": "🎁"},
+    {"id": "gift_receive_3", "title": "Любимец облаков", "description": "Получи 3 подарка от друзей", "metric": "gifts_received", "target": 3, "reward": 40, "icon": "💌"},
+    {"id": "cosmetic_1", "title": "Зимний стиль", "description": "Приобрети предмет в праздничном магазине", "metric": "cosmetics", "target": 1, "reward": 30, "icon": "✨"},
+]
+
+
+def winter_quest_state(conn: sqlite3.Connection, player_id: str, event_start: str) -> list[dict[str, Any]]:
+    start_ts = datetime.fromisoformat(event_start).replace(tzinfo=timezone.utc).timestamp()
+    metrics = {
+        "calendar_days": int(conn.execute("SELECT COUNT(*) AS n FROM winter_calendar_claims WHERE player_id = ?", (player_id,)).fetchone()["n"]),
+        "gifts_sent": int(conn.execute("SELECT COUNT(*) AS n FROM player_gifts WHERE sender_id = ? AND created_at >= ?", (player_id, start_ts)).fetchone()["n"]),
+        "gifts_received": int(conn.execute("SELECT COUNT(*) AS n FROM player_gifts WHERE receiver_id = ? AND created_at >= ?", (player_id, start_ts)).fetchone()["n"]),
+        "cosmetics": int(conn.execute("SELECT COUNT(*) AS n FROM winter_cosmetics WHERE player_id = ? AND purchased_at >= ?", (player_id, start_ts)).fetchone()["n"]),
+    }
+    claimed = {
+        item["quest_id"] for item in conn.execute(
+            "SELECT quest_id FROM winter_quest_claims WHERE player_id = ?",
+            (player_id,),
+        ).fetchall()
+    }
+    return [{
+        **item,
+        "progress": min(item["target"], metrics[item["metric"]]),
+        "percent": min(100, int(metrics[item["metric"]] * 100 / item["target"])),
+        "unlocked": metrics[item["metric"]] >= item["target"],
+        "claimed": item["id"] in claimed,
+    } for item in WINTER_QUESTS]
+
+
+GIFT_CATALOG = {
+    "snowflake_charm": {"title": "Снежинка", "kind": "decor", "rarity": "common", "icon": "❄️", "description": "Памятный зимний сувенир"},
+    "cloud_bell": {"title": "Облачный колокольчик", "kind": "decor", "rarity": "rare", "icon": "🔔", "description": "Коллекционный праздничный декор"},
+    "golden_ornament": {"title": "Золотая игрушка", "kind": "decor", "rarity": "epic", "icon": "🌟", "description": "Редкое украшение облака"},
+    "winter_wings": {"title": "Крылья зимнего света", "kind": "decor", "rarity": "legendary", "icon": "🪽", "description": "Легендарный декоративный подарок"},
+    "warm_glow": {"title": "Тёплое сияние", "kind": "boost", "rarity": "common", "icon": "✨", "description": "+10% монет за тап на 1 час", "effect": "income_10", "duration": 3600},
+    "double_cloud": {"title": "Двойное облако", "kind": "boost", "rarity": "rare", "icon": "☁️", "description": "x2 монет за тап на 30 минут", "effect": "tap_double", "duration": 1800},
+    "tap_spark": {"title": "Искра силы", "kind": "boost", "rarity": "epic", "icon": "⚡", "description": "+5 к силе тапа на 1 час", "effect": "tap_plus_5", "duration": 3600},
+    "tailwind": {"title": "Попутный ветер", "kind": "boost", "rarity": "legendary", "icon": "🌬️", "description": "x2 пассивный доход на 1 час", "effect": "passive_double", "duration": 3600},
+}
+GIFT_DAILY_LIMITS = {1: 5, 2: 10, 3: 15, 4: 20}
+
+
+def active_gift_effects(conn: sqlite3.Connection, player_id: str, now: float | None = None) -> dict[str, Any]:
+    now = time.time() if now is None else now
+    rows = conn.execute(
+        """SELECT effect FROM player_gifts
+           WHERE receiver_id = ? AND kind = 'boost' AND status = 'active'
+             AND expires_at > ? ORDER BY activated_at""",
+        (player_id, now),
+    ).fetchall()
+    effects = [str(item["effect"]) for item in rows]
+    return {
+        "active_count": len(effects),
+        "tap_double": "tap_double" in effects,
+        "tap_plus_5": 5 if "tap_plus_5" in effects else 0,
+        "income_10": 1.10 if "income_10" in effects else 1.0,
+        "passive_double": "passive_double" in effects,
+        "effects": effects,
+    }
+
+
+def gift_state(conn: sqlite3.Connection, player_id: str, era: int) -> dict[str, Any]:
+    now = time.time()
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    limit = GIFT_DAILY_LIMITS.get(era, 20)
+    sent_today = conn.execute(
+        "SELECT COUNT(*) AS total FROM player_gifts WHERE sender_id = ? AND created_at >= ?",
+        (player_id, day_start),
+    ).fetchone()
+    active_gift_effects(conn, player_id, now)
+    conn.execute(
+        "UPDATE player_gifts SET status = 'expired' WHERE receiver_id = ? AND status = 'active' AND expires_at <= ?",
+        (player_id, now),
+    )
+    items = conn.execute(
+        """SELECT g.*, p.nickname AS sender_nickname
+           FROM player_gifts g JOIN players p ON p.id = g.sender_id
+           WHERE g.receiver_id = ? ORDER BY g.created_at DESC LIMIT 60""",
+        (player_id,),
+    ).fetchall()
+    inventory = []
+    for item in items:
+        catalog = GIFT_CATALOG.get(str(item["gift_code"]), {})
+        expires = float(item["expires_at"] or 0)
+        inventory.append({
+            "id": str(item["id"]), "code": str(item["gift_code"]),
+            "title": catalog.get("title", str(item["gift_code"])),
+            "icon": catalog.get("icon", "🎁"), "description": catalog.get("description", ""),
+            "kind": str(item["kind"]), "rarity": str(item["rarity"]),
+            "status": str(item["status"]), "sender": str(item["sender_nickname"]),
+            "note": str(item["note"] or ""),
+            "remaining_seconds": max(0, int(expires - now)) if item["status"] == "active" else 0,
+            "can_activate": item["kind"] == "boost" and item["status"] == "inventory",
+        })
+    active = active_gift_effects(conn, player_id, now)
+    sent_items = conn.execute(
+        """SELECT g.*, p.nickname AS receiver_nickname
+           FROM player_gifts g JOIN players p ON p.id = g.receiver_id
+           WHERE g.sender_id = ? ORDER BY g.created_at DESC LIMIT 40""",
+        (player_id,),
+    ).fetchall()
+    sent_history = []
+    for item in sent_items:
+        catalog = GIFT_CATALOG.get(str(item["gift_code"]), {})
+        sent_history.append({
+            "title": catalog.get("title", str(item["gift_code"])),
+            "icon": catalog.get("icon", "🎁"),
+            "receiver": str(item["receiver_nickname"]),
+            "status": str(item["status"]),
+            "created_at": int(float(item["created_at"])),
+        })
+    return {
+        "daily_limit": limit, "sent_today": int(sent_today["total"] or 0),
+        "remaining_today": max(0, limit - int(sent_today["total"] or 0)),
+        "active_boosts": active["active_count"], "max_active_boosts": 2,
+        "effects": active["effects"], "inventory": inventory,
+        "sent_history": sent_history,
+        "catalog": [
+            {"code": code, **{key: value for key, value in item.items() if key not in {"effect", "duration"}}}
+            for code, item in GIFT_CATALOG.items()
+        ],
+    }
+
+
+ACHIEVEMENTS = [
+    {"id": "taps_1000", "title": "Облачный кликер", "description": "Сделай 1 000 нажатий", "metric": "taps", "target": 1000, "reward": 500, "badge": "☁"},
+    {"id": "earned_100k", "title": "Копилка растёт", "description": "Заработай 100 000 монет за всё время", "metric": "earned", "target": 100000, "reward": 1000, "badge": "💰"},
+    {"id": "upgrades_50", "title": "Инженер облаков", "description": "Купи 50 уровней улучшений", "metric": "upgrades", "target": 50, "reward": 2500, "badge": "🛠️"},
+    {"id": "era_2", "title": "Космический путь", "description": "Открой эпоху Космических облаков", "metric": "era", "target": 2, "reward": 5000, "badge": "🚀"},
+    {"id": "era_3", "title": "Небесный правитель", "description": "Открой Небесную империю", "metric": "era", "target": 3, "reward": 10000, "badge": "👑"},
+    {"id": "era_4", "title": "За гранью небес", "description": "Достигни Божественного измерения", "metric": "era", "target": 4, "reward": 20000, "badge": "✨"},
+]
+
+
+def achievement_state(conn: sqlite3.Connection, row: sqlite3.Row) -> list[dict[str, Any]]:
+    metrics = {
+        "taps": int(row["total_taps"]),
+        "earned": int(row["total_earned"]),
+        "upgrades": int(conn.execute("SELECT COALESCE(SUM(upgrade_purchases), 0) AS total FROM player_era_progress WHERE player_id = ?", (row["id"],)).fetchone()["total"]),
+        "era": int(row["active_era"]),
+    }
+    claimed = {
+        item["achievement_id"]: item
+        for item in conn.execute(
+            "SELECT achievement_id, reward FROM player_achievement_claims WHERE player_id = ?",
+            (row["id"],),
+        ).fetchall()
+    }
+    result = []
+    for item in ACHIEVEMENTS:
+        progress = min(item["target"], metrics[item["metric"]])
+        is_claimed = item["id"] in claimed
+        result.append({
+            **item, "progress": progress,
+            "percent": min(100, int(progress * 100 / item["target"])),
+            "unlocked": progress >= item["target"],
+            "claimed": is_claimed,
+        })
+    return result
+
+
+def register_referral(conn: sqlite3.Connection, invitee_id: str, code: str | None) -> None:
+    if not code or len(code) > 64:
+        return
+    invitee = conn.execute("SELECT created_at FROM players WHERE id = ?", (invitee_id,)).fetchone()
+    if not invitee or time.time() - float(invitee["created_at"]) > 600:
+        return
+    inviter = conn.execute("SELECT player_id FROM referral_codes WHERE code = ?", (code,)).fetchone()
+    if not inviter:
+        return
+    inviter_id = str(inviter["player_id"])
+    if inviter_id == invitee_id:
+        return
+    conn.execute(
+        """INSERT OR IGNORE INTO referrals
+           (invitee_id, inviter_id, status, reward, created_at)
+           VALUES (?, ?, 'pending', 1000, ?)""",
+        (invitee_id, inviter_id, time.time()),
+    )
+
+
+def referral_state(conn: sqlite3.Connection, player_id: str) -> dict[str, Any]:
+    saved = conn.execute("SELECT code FROM referral_codes WHERE player_id = ?", (player_id,)).fetchone()
+    if saved is None:
+        code = secrets.token_urlsafe(9)
+        conn.execute(
+            "INSERT OR IGNORE INTO referral_codes (player_id, code, created_at) VALUES (?, ?, ?)",
+            (player_id, code, time.time()),
+        )
+        saved = conn.execute("SELECT code FROM referral_codes WHERE player_id = ?", (player_id,)).fetchone()
+    code = str(saved["code"])
+    stats = conn.execute(
+        """SELECT COUNT(*) AS total,
+           SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+           SUM(CASE WHEN status = 'active' THEN reward ELSE 0 END) AS rewards
+           FROM referrals WHERE inviter_id = ?""",
+        (player_id,),
+    ).fetchone()
+    base = PUBLIC_BASE_URL or ""
+    referral_link = (
+        f"https://t.me/{TELEGRAM_BOT_USERNAME}?startapp=ref_{code}"
+        if TELEGRAM_BOT_USERNAME else f"{base}/?ref={code}"
+    )
+    return {
+        "code": code,
+        "link": referral_link,
+        "invited": int(stats["total"] or 0),
+        "active": int(stats["active"] or 0),
+        "pending": int(stats["pending"] or 0),
+        "rewards": int(stats["rewards"] or 0),
+        "activation_taps": 100,
+    }
+
+
+PROFILE_AVATARS = ["☁️", "🎅", "❄️", "🌌", "👑", "✨"]
+PROFILE_FRAMES = {"cloud": 1, "winter": 1, "cosmic": 2, "royal": 3, "divine": 4}
+
+
+def ensure_public_profile(conn: sqlite3.Connection, player_id: str) -> sqlite3.Row:
+    saved = conn.execute("SELECT * FROM player_profiles WHERE player_id = ?", (player_id,)).fetchone()
+    if saved is None:
+        conn.execute(
+            "INSERT OR IGNORE INTO player_profiles (player_id, public_code, avatar, frame, updated_at) VALUES (?, ?, '☁️', 'cloud', ?)",
+            (player_id, secrets.token_urlsafe(9), time.time()),
+        )
+        saved = conn.execute("SELECT * FROM player_profiles WHERE player_id = ?", (player_id,)).fetchone()
+    return saved
+
+
+def profile_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    profile = ensure_public_profile(conn, row["id"])
+    cosmetics = [
+        {"code": item["item_code"],
+         "title": WINTER_SHOP.get(item["item_code"], {}).get("title", item["item_code"]),
+         "icon": WINTER_SHOP.get(item["item_code"], {}).get("icon", "🎨")}
+        for item in conn.execute("SELECT item_code FROM winter_cosmetics WHERE player_id = ? ORDER BY purchased_at", (row["id"],)).fetchall()
+    ]
+    return {
+        "public_code": str(profile["public_code"]),
+        "avatar": str(profile["avatar"]),
+        "frame": str(profile["frame"]),
+        "equipped_cosmetic": str(profile["equipped_cosmetic"] or ""),
+        "cosmetics": cosmetics,
+        "url": f"/?profile={profile['public_code']}",
+        "avatars": PROFILE_AVATARS,
+        "frames": sorted(PROFILE_FRAMES.keys()),
+    }
 
 
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
+    era_overview = get_era_overview(conn, row) if conn is not None else None
+    winter_state = winter_event_state(conn, row) if conn is not None else None
+    achievements = achievement_state(conn, row) if conn is not None else []
+    referrals = referral_state(conn, row["id"]) if conn is not None else None
+    gifts = gift_state(conn, row["id"], int(row["active_era"])) if conn is not None else None
+    profile = profile_state(conn, row) if conn is not None else None
     upgrades = []
+    era_currency = ERA_NAMES[int(row["active_era"])][1]
+    power_multiplier = era_power_multiplier(int(row["active_era"]))
+    scaled_descriptions = {
+        "tap": f"+{1 * power_multiplier} {era_currency} за каждое нажатие",
+        "auto": f"+{1 * power_multiplier} {era_currency} в секунду",
+        "lab": f"+{2 * power_multiplier} {era_currency} в секунду за уровень",
+        "radar": f"+{5 * power_multiplier} {era_currency} в секунду за уровень",
+        "network": f"+{2 * power_multiplier} {era_currency} за тап за уровень",
+    }
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
         upgrades.append({
             "id": upgrade_id,
             "title": data["title"],
-            "description": data["description"],
+            "description": scaled_descriptions.get(upgrade_id, data["description"].replace("Cloudcoin", era_currency)),
             "icon": data["icon"],
             "category": data["category"],
             "level": level,
@@ -629,6 +1133,12 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
 
     return {
         "nickname": row["nickname"],
+        "era": era_overview,
+        "winter_event": winter_state,
+        "achievements": achievements,
+        "referrals": referrals,
+        "gifts": gifts,
+        "profile": profile,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -665,11 +1175,17 @@ def check_csrf() -> bool:
 @app.before_request
 def prepare_session():
     session.setdefault("csrf_token", secrets.token_urlsafe(24))
+    incoming_ref = request.args.get("ref", "")
+    if incoming_ref and len(incoming_ref) <= 64:
+        session["referral_code"] = incoming_ref
     guest_player_id = get_player_id()
     raw_init_data = request.headers.get("X-Telegram-Init-Data", "")
     if raw_init_data:
         try:
             telegram_user = validate_telegram_init_data(raw_init_data)
+            start_param = str(telegram_user.get("start_param") or "")
+            if start_param.startswith("ref_") and len(start_param) <= 68:
+                session["referral_code"] = start_param[4:]
             player_id = bind_telegram_user(telegram_user, guest_player_id)
             g.telegram_user = telegram_user
             g.telegram_player_id = player_id
@@ -693,9 +1209,253 @@ def state():
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = ensure_player(conn, player_id)
+        if getattr(g, "telegram_user", None):
+            register_referral(conn, player_id, session.get("referral_code"))
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/gifts/send")
+def send_gift():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    if not getattr(g, "telegram_user", None):
+        return api_error("Отправка подарков доступна после входа через Telegram.", 401)
+    payload = request.get_json(silent=True) or {}
+    recipient_code = str(payload.get("recipient_code", "")).strip()
+    gift_code = str(payload.get("gift_code", "")).strip()
+    note = " ".join(str(payload.get("note", "")).split())[:120]
+    gift = GIFT_CATALOG.get(gift_code)
+    if len(recipient_code) > 64 or not recipient_code or not gift:
+        return api_error("Проверь код друга и выбери подарок.")
+    player_id = get_player_id()
+    now = time.time()
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        sender = ensure_player(conn, player_id)
+        # PostgreSQL ignores SQLite's BEGIN IMMEDIATE; this no-op update obtains
+        # a per-player row lock so concurrent sends cannot exceed the daily cap.
+        conn.execute("UPDATE players SET last_active_at = last_active_at WHERE id = ?", (player_id,))
+        sender = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        recipient = conn.execute(
+            """SELECT p.id FROM referral_codes r
+               JOIN players p ON p.id = r.player_id
+               JOIN telegram_accounts t ON t.player_id = p.id
+               WHERE r.code = ?""",
+            (recipient_code,),
+        ).fetchone()
+        if recipient is None:
+            return jsonify({"ok": False, "error": "Друг не найден. Нужен код игрока, который уже открыл игру через Telegram.", "state": make_state(sender, conn)}), 404
+        receiver_id = str(recipient["id"])
+        if receiver_id == player_id:
+            return jsonify({"ok": False, "error": "Нельзя отправить подарок самому себе.", "state": make_state(sender, conn)}), 409
+        limit = GIFT_DAILY_LIMITS.get(int(sender["active_era"]), 20)
+        sent = conn.execute(
+            "SELECT COUNT(*) AS total FROM player_gifts WHERE sender_id = ? AND created_at >= ?",
+            (player_id, day_start),
+        ).fetchone()
+        if int(sent["total"] or 0) >= limit:
+            return jsonify({"ok": False, "error": f"Лимит эпохи: {limit} подарков в сутки.", "state": make_state(sender, conn)}), 429
+        gift_id = uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO player_gifts
+               (id, sender_id, receiver_id, gift_code, kind, rarity, effect,
+                duration_seconds, created_at, status, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (gift_id, player_id, receiver_id, gift_code, gift["kind"], gift["rarity"],
+             gift.get("effect"), int(gift.get("duration", 0)), now,
+             "collected" if gift["kind"] == "decor" else "inventory", note),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "state": result, "message": "Подарок отправлен!"})
+
+
+@app.post("/api/gifts/activate")
+def activate_gift():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    gift_id = str((request.get_json(silent=True) or {}).get("gift_id", ""))
+    if not gift_id or len(gift_id) > 64:
+        return api_error("Не выбран подарок.")
+    player_id = get_player_id()
+    now = time.time()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        # Serialize gift activations for this receiver on PostgreSQL as well as SQLite.
+        conn.execute("UPDATE players SET last_active_at = last_active_at WHERE id = ?", (player_id,))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        gift = conn.execute(
+            "SELECT * FROM player_gifts WHERE id = ? AND receiver_id = ?",
+            (gift_id, player_id),
+        ).fetchone()
+        if gift is None or gift["kind"] != "boost" or gift["status"] != "inventory":
+            return jsonify({"ok": False, "error": "Этот подарок нельзя активировать.", "state": make_state(row, conn)}), 409
+        active = active_gift_effects(conn, player_id, now)
+        if active["active_count"] >= 2:
+            return jsonify({"ok": False, "error": "Уже активны два подарочных буста. Дождись окончания одного.", "state": make_state(row, conn)}), 409
+        duration = max(60, int(gift["duration_seconds"]))
+        conn.execute(
+            "UPDATE player_gifts SET status = 'active', activated_at = ?, expires_at = ? WHERE id = ? AND receiver_id = ? AND status = 'inventory'",
+            (now, now + duration, gift_id, player_id),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "state": result, "message": "Подарочный буст активирован!"})
+
+
+@app.post("/api/achievement/claim")
+def claim_achievement():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    achievement_id = str(payload.get("id", ""))
+    item = next((entry for entry in ACHIEVEMENTS if entry["id"] == achievement_id), None)
+    if item is None:
+        return api_error("Такого достижения нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        achievements = achievement_state(conn, row)
+        status = next(entry for entry in achievements if entry["id"] == achievement_id)
+        if status["claimed"]:
+            return jsonify({"ok": False, "error": "Награда за достижение уже получена.", "state": make_state(row, conn)}), 409
+        if not status["unlocked"]:
+            return jsonify({"ok": False, "error": "Достижение ещё не открыто.", "state": make_state(row, conn)}), 409
+        reward = int(item["reward"])
+        conn.execute(
+            "INSERT INTO player_achievement_claims (player_id, achievement_id, reward, claimed_at) VALUES (?, ?, ?, ?)",
+            (player_id, achievement_id, reward, time.time()),
+        )
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (reward, reward, player_id))
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/winter/quest/claim")
+def claim_winter_quest():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    quest_id = str((request.get_json(silent=True) or {}).get("id", ""))
+    quest = next((item for item in WINTER_QUESTS if item["id"] == quest_id), None)
+    if quest is None:
+        return api_error("Такого зимнего задания нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        event = winter_event_state(conn, row)
+        status = next(item for item in event["quests"] if item["id"] == quest_id)
+        if status["claimed"]:
+            return jsonify({"ok": False, "error": "Награда за это задание уже получена.", "state": make_state(row, conn)}), 409
+        if not status["unlocked"]:
+            return jsonify({"ok": False, "error": "Задание ещё не выполнено.", "state": make_state(row, conn)}), 409
+        reward = int(quest["reward"])
+        conn.execute(
+            "INSERT INTO winter_quest_claims (player_id, quest_id, reward, claimed_at) VALUES (?, ?, ?, ?)",
+            (player_id, quest_id, reward, time.time()),
+        )
+        conn.execute("UPDATE winter_event_players SET tickets = tickets + ? WHERE player_id = ?", (reward, player_id))
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/winter/shop/purchase")
+def purchase_winter_cosmetic():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    code = str((request.get_json(silent=True) or {}).get("item_code", ""))
+    item = WINTER_SHOP.get(code)
+    if item is None:
+        return api_error("Такого праздничного предмета нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        event = winter_event_state(conn, row)
+        if int(row["active_era"]) < int(item["era_required"]):
+            return jsonify({"ok": False, "error": "Этот предмет откроется в более поздней эпохе.", "state": make_state(row, conn)}), 409
+        if conn.execute("SELECT 1 FROM winter_cosmetics WHERE player_id = ? AND item_code = ?", (player_id, code)).fetchone():
+            return jsonify({"ok": False, "error": "Этот предмет уже есть в твоей коллекции.", "state": make_state(row, conn)}), 409
+        price = int(item["price"])
+        if int(event["tickets"]) < price:
+            return jsonify({"ok": False, "error": "Не хватает праздничных билетиков.", "state": make_state(row, conn)}), 409
+        conn.execute("UPDATE winter_event_players SET tickets = tickets - ? WHERE player_id = ?", (price, player_id))
+        conn.execute(
+            "INSERT INTO winter_cosmetics (player_id, item_code, purchased_at, tickets_paid) VALUES (?, ?, ?, ?)",
+            (player_id, code, time.time(), price),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "item": code, "state": result, "message": "Праздничный предмет добавлен в коллекцию!"})
+
+
+@app.post("/api/winter/calendar/claim")
+def claim_winter_calendar():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        event = winter_event_state(conn, row)
+        calendar = event["calendar"]
+        if not calendar["active"]:
+            return jsonify({"ok": False, "error": "Новогодний календарь сейчас не активен.", "state": make_state(row, conn)}), 409
+        day_number = int(calendar["day"])
+        if calendar["claimed_today"]:
+            return jsonify({"ok": False, "error": "Подарок за сегодняшний день уже получен.", "state": make_state(row, conn)}), 409
+        reward = winter_ticket_reward(day_number)
+        conn.execute(
+            "INSERT INTO winter_calendar_claims (player_id, day_number, reward, claimed_at) VALUES (?, ?, ?, ?)",
+            (player_id, day_number, reward, time.time()),
+        )
+        conn.execute("UPDATE winter_event_players SET tickets = tickets + ? WHERE player_id = ?", (reward, player_id))
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/era/transition")
+def transition_era():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        overview = get_era_overview(conn, row)
+        requirement = overview["progress"]
+        if requirement.get("next_era") is None:
+            return jsonify({"ok": False, "error": "Ты уже достиг последней эпохи.", "state": make_state(row, conn)}), 409
+        if not requirement.get("unlocked"):
+            return jsonify({"ok": False, "error": "Условие перехода ещё не выполнено.", "state": make_state(row, conn)}), 409
+        next_era = int(requirement["next_era"])
+        now = time.time()
+        conn.execute(
+            """UPDATE players SET active_era = ?, coins = 0,
+               tap_level = 0, auto_level = 0, energy_level = 0, lab_level = 0,
+               radar_level = 0, network_level = 0, energy = ?, passive_fraction = 0,
+               turbo_until = 0, last_energy_at = ?, last_active_at = ? WHERE id = ?""",
+            (next_era, START_ENERGY, now, now, player_id),
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO player_era_progress
+               (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+               VALUES (?, ?, 0, 0, 0, 0, '{}', 0, ?, 0, ?, ?)""",
+            (player_id, next_era, int(row["total_taps"]), now, now),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "era_changed": True, "state": result})
 
 
 @app.post("/api/click")
@@ -716,13 +1476,31 @@ def click():
         accepted_count = min(requested_count, int(float(row["energy"])))
         if accepted_count < 1:
             return jsonify({"ok": False, "error": "Энергия закончилась", "state": make_state(row, conn)}), 409
-        multiplier = 2 if float(row["turbo_until"]) > time.time() else 1
-        reward = tap_power(row) * accepted_count * multiplier
+        gift_effects = active_gift_effects(conn, player_id)
+        multiplier = (2 if float(row["turbo_until"]) > time.time() else 1) * (2 if gift_effects["tap_double"] else 1)
+        reward = int(round((tap_power(row) + gift_effects["tap_plus_5"]) * accepted_count * multiplier * gift_effects["income_10"]))
         conn.execute(
             """UPDATE players SET coins = coins + ?, total_earned = total_earned + ?,
                total_taps = total_taps + ?, energy = energy - ? WHERE id = ?""",
             (reward, reward, accepted_count, accepted_count, player_id),
         )
+        invitee = conn.execute("SELECT total_taps FROM players WHERE id = ?", (player_id,)).fetchone()
+        if int(invitee["total_taps"]) >= 100:
+            referral = conn.execute(
+                "SELECT inviter_id, reward FROM referrals WHERE invitee_id = ? AND status = 'pending'",
+                (player_id,),
+            ).fetchone()
+            if referral:
+                conn.execute(
+                    "UPDATE referrals SET status = 'active', activated_at = ? WHERE invitee_id = ? AND status = 'pending'",
+                    (time.time(), player_id),
+                )
+                conn.execute(
+                    "UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?",
+                    (int(referral["reward"]), int(referral["reward"]), referral["inviter_id"]),
+                )
+                inviter_row = conn.execute("SELECT * FROM players WHERE id = ?", (referral["inviter_id"],)).fetchone()
+                sync_era_progress(conn, inviter_row)
         bump_quest(conn, player_id, "tap_100", accepted_count)
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(row, conn)
@@ -747,7 +1525,7 @@ def buy_upgrade():
         level = int(row[level_column])
         cost = upgrade_cost(upgrade_id, level)
         if int(row["coins"]) < cost:
-            return jsonify({"ok": False, "error": "Пока не хватает Cloudcoin", "state": make_state(row, conn)}), 409
+            return jsonify({"ok": False, "error": "Пока не хватает валюты текущей эпохи", "state": make_state(row, conn)}), 409
         conn.execute(f"UPDATE players SET coins = coins - ?, {level_column} = {level_column} + 1 WHERE id = ?", (cost, player_id))
         if upgrade_id in combo_for_day(day):
             conn.execute("INSERT OR IGNORE INTO daily_combo_progress (player_id, combo_date, upgrade_id, purchased_at) VALUES (?, ?, ?, ?)", (player_id, day, upgrade_id, time.time()))
@@ -895,7 +1673,7 @@ def activate_turbo():
         row = ensure_player(conn, player_id)
         row = advance_player(conn, row, now)
         if int(row["coins"]) < TURBO_COST:
-            return jsonify({"ok": False, "error": "Не хватает Cloudcoin на турбо-буст.", "state": make_state(row, conn)}), 409
+            return jsonify({"ok": False, "error": "Не хватает валюты текущей эпохи на турбо-буст.", "state": make_state(row, conn)}), 409
         new_until = min(max(float(row["turbo_until"]), now) + TURBO_SECONDS, now + 180)
         conn.execute("UPDATE players SET coins = coins - ?, turbo_until = ? WHERE id = ?", (TURBO_COST, new_until, player_id))
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
@@ -915,7 +1693,7 @@ def activate_energy_boost():
         if float(row["energy"]) >= max_energy(row) - 0.5:
             return jsonify({"ok": False, "error": "Энергия уже полная.", "state": make_state(row, conn)}), 409
         if int(row["coins"]) < ENERGY_REFILL_COST:
-            return jsonify({"ok": False, "error": "Не хватает Cloudcoin на восстановление энергии.", "state": make_state(row, conn)}), 409
+            return jsonify({"ok": False, "error": "Не хватает валюты текущей эпохи на восстановление энергии.", "state": make_state(row, conn)}), 409
         conn.execute("UPDATE players SET coins = coins - ?, energy = ? WHERE id = ?", (ENERGY_REFILL_COST, max_energy(row), player_id))
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(row, conn)
@@ -940,17 +1718,132 @@ def set_nickname():
     return jsonify({"ok": True, "state": result})
 
 
-@app.get("/api/leaderboard")
-def leaderboard():
+@app.get("/api/profile/<public_code>")
+def public_profile(public_code: str):
+    if len(public_code) > 64:
+        return api_error("Профиль не найден.", 404)
+    with db_connection() as conn:
+        profile = conn.execute(
+            """SELECT pp.avatar, pp.frame, pp.equipped_cosmetic, p.nickname, p.total_earned, p.total_taps, p.active_era, p.id
+               FROM player_profiles pp JOIN players p ON p.id = pp.player_id
+               WHERE pp.public_code = ?""",
+            (public_code,),
+        ).fetchone()
+        if profile is None:
+            return api_error("Профиль не найден.", 404)
+        achievements = [
+            {"title": item["title"], "badge": item["badge"]}
+            for item in achievement_state(conn, conn.execute("SELECT * FROM players WHERE id = ?", (profile["id"],)).fetchone())
+            if item["unlocked"]
+        ]
+        cosmetics = [
+            {"code": item["item_code"],
+             "title": WINTER_SHOP.get(item["item_code"], {}).get("title", item["item_code"]),
+             "icon": WINTER_SHOP.get(item["item_code"], {}).get("icon", "🎨")}
+            for item in conn.execute(
+                "SELECT item_code FROM winter_cosmetics WHERE player_id = ? ORDER BY purchased_at",
+                (profile["id"],),
+            ).fetchall()
+        ]
+        gifts = [
+            {"title": GIFT_CATALOG.get(item["gift_code"], {}).get("title", item["gift_code"]),
+             "icon": GIFT_CATALOG.get(item["gift_code"], {}).get("icon", "🎁"),
+             "rarity": item["rarity"]}
+            for item in conn.execute(
+                """SELECT gift_code, rarity FROM player_gifts
+                   WHERE receiver_id = ? AND kind = 'decor' AND status = 'collected'
+                   ORDER BY created_at DESC LIMIT 20""",
+                (profile["id"],),
+            ).fetchall()
+        ]
+    return jsonify({"ok": True, "profile": {
+        "nickname": profile["nickname"], "avatar": profile["avatar"], "frame": profile["frame"],
+        "equipped_cosmetic": profile["equipped_cosmetic"],
+        "equipped_cosmetic_title": WINTER_SHOP.get(profile["equipped_cosmetic"], {}).get("title", ""),
+        "equipped_cosmetic_icon": WINTER_SHOP.get(profile["equipped_cosmetic"], {}).get("icon", ""),
+        "era": int(profile["active_era"]), "total_earned": int(profile["total_earned"]),
+        "total_taps": int(profile["total_taps"]), "achievements": achievements,
+        "cosmetics": cosmetics, "gifts": gifts,
+    }})
+
+
+@app.post("/api/profile/update")
+def update_public_profile():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    avatar = str(payload.get("avatar", "☁️"))
+    frame = str(payload.get("frame", "cloud"))
+    cosmetic = str(payload.get("cosmetic", ""))
+    if avatar not in PROFILE_AVATARS or frame not in PROFILE_FRAMES:
+        return api_error("Такое оформление профиля недоступно.")
     player_id = get_player_id()
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        if int(row["active_era"]) < PROFILE_FRAMES[frame]:
+            return jsonify({"ok": False, "error": "Рамка откроется в более поздней эпохе.", "state": make_state(row, conn)}), 409
+        if cosmetic and not conn.execute("SELECT 1 FROM winter_cosmetics WHERE player_id = ? AND item_code = ?", (player_id, cosmetic)).fetchone():
+            return jsonify({"ok": False, "error": "Сначала приобрети это украшение в зимнем магазине.", "state": make_state(row, conn)}), 409
+        ensure_public_profile(conn, player_id)
+        conn.execute("UPDATE player_profiles SET avatar = ?, frame = ?, equipped_cosmetic = ?, updated_at = ? WHERE player_id = ?", (avatar, frame, cosmetic, time.time(), player_id))
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.get("/api/leaderboard")
+def leaderboard():
+    player_id = get_player_id()
+    sort = request.args.get("sort", "earned")
+    if sort not in {"earned", "taps", "invites", "achievements", "eras"}:
+        sort = "earned"
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         ensure_player(conn, player_id)
-        rows = conn.execute("SELECT id, nickname, total_earned, total_taps FROM players ORDER BY total_earned DESC, total_taps DESC LIMIT 10").fetchall()
-        my_rank = conn.execute("SELECT COUNT(*) + 1 AS rank FROM players WHERE total_earned > (SELECT total_earned FROM players WHERE id = ?)", (player_id,)).fetchone()["rank"]
-    return jsonify({"ok": True,
-        "leaders": [{"rank": i + 1, "nickname": row["nickname"], "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]), "you": row["id"] == player_id} for i, row in enumerate(rows)],
-        "my_rank": int(my_rank)})
+        rows = conn.execute(
+            """SELECT p.id, p.nickname, p.total_earned, p.total_taps, p.active_era,
+               (SELECT COUNT(*) FROM referrals r WHERE r.inviter_id = p.id AND r.status = 'active') AS invites,
+               (SELECT COUNT(*) FROM player_achievement_claims a WHERE a.player_id = p.id) AS achievements
+               FROM players p"""
+        ).fetchall()
+        sort_keys = {
+            "earned": lambda item: (int(item["total_earned"]), int(item["total_taps"])),
+            "taps": lambda item: (int(item["total_taps"]), int(item["total_earned"])),
+            "invites": lambda item: (int(item["invites"]), int(item["total_earned"])),
+            "achievements": lambda item: (int(item["achievements"]), int(item["total_earned"])),
+            "eras": lambda item: (int(item["active_era"]), int(item["total_earned"])),
+        }
+        rows = sorted(rows, key=sort_keys[sort], reverse=True)
+        my_rank = next((index + 1 for index, item in enumerate(rows) if item["id"] == player_id), 1)
+        top_rows = rows[:10]
+        for item in top_rows:
+            ensure_public_profile(conn, str(item["id"]))
+        profiles = {
+            item["player_id"]: item
+            for item in conn.execute("SELECT player_id, public_code, avatar, frame FROM player_profiles").fetchall()
+        }
+    score_fields = {
+        "earned": ("total_earned", "монет"),
+        "taps": ("total_taps", "тапов"),
+        "invites": ("invites", "друзей"),
+        "achievements": ("achievements", "достижений"),
+        "eras": ("active_era", "эпоха"),
+    }
+    score_key, score_label = score_fields[sort]
+    leaders = []
+    for index, row in enumerate(top_rows):
+        profile = profiles[row["id"]]
+        leaders.append({
+            "rank": index + 1, "nickname": row["nickname"],
+            "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]),
+            "score": int(row[score_key]), "score_label": score_label,
+            "you": row["id"] == player_id, "profile_code": profile["public_code"],
+            "avatar": profile["avatar"], "frame": profile["frame"],
+        })
+    return jsonify({"ok": True, "sort": sort, "leaders": leaders, "my_rank": int(my_rank)})
+
+
 
 
 @app.get("/api/shop/packages")
@@ -996,7 +1889,7 @@ def create_star_invoice():
             "description": package["description"],
             "payload": invoice_payload,
             "currency": "XTR",
-            "prices": [{"label": f"{package['coins']:,} Cloudcoin", "amount": int(package["stars"])}],
+            "prices": [{"label": f"{package['coins']:,} игровых монет", "amount": int(package["stars"])}],
         })
         invoice_url = result.get("result")
         if not isinstance(invoice_url, str) or not invoice_url.startswith("https://"):
@@ -1049,6 +1942,10 @@ def process_successful_payment(message: dict[str, Any]) -> None:
         if not payment:
             app.logger.error("Successful payment has unknown invoice payload")
             return
+        # Lock the payment record before checking status. This makes webhook retries
+        # idempotent even when Telegram delivers the same update concurrently.
+        conn.execute("UPDATE star_payments SET status = status WHERE id = ?", (payment["id"],))
+        payment = conn.execute("SELECT * FROM star_payments WHERE id = ?", (payment["id"],)).fetchone()
         if payment["status"] == "paid":
             return  # Idempotent webhook retry; do not credit twice.
         if payment["status"] != "pending" or payment["telegram_id"] != telegram_id or total_amount != int(payment["stars_amount"]):
@@ -1073,7 +1970,7 @@ def process_start_message(message: dict[str, Any]) -> None:
         return
     telegram_api("sendMessage", {
         "chat_id": chat["id"],
-        "text": "☁ Добро пожаловать в Cloud Clicker! Нажимай на облако, собирай Cloudcoin и открывай улучшения.\n\nКоманды: /terms — условия покупок, /support — поддержка.",
+        "text": "☁ Добро пожаловать в Cloud Clicker! Нажимай на облако, собирай монеты и открывай улучшения.\n\nКоманды: /terms — условия покупок, /support — поддержка.",
         "reply_markup": {
             "inline_keyboard": [[{
                 "text": "☁ Открыть Cloud Clicker",
@@ -1092,12 +1989,12 @@ def process_bot_command(message: dict[str, Any]) -> None:
         text = (PUBLIC_BASE_URL + "/terms") if PUBLIC_BASE_URL.startswith("https://") else "Условия покупки доступны на сайте Cloud Clicker."
         telegram_api("sendMessage", {"chat_id": chat["id"], "text": "Условия покупки цифровых товаров Cloud Clicker: " + text})
     elif command == "/support":
-        telegram_api("sendMessage", {"chat_id": chat["id"], "text": "По вопросам платежей и начисления Cloudcoin напиши создателю: @deIaywork. Сохрани квитанцию Telegram Stars и укажи дату и пакет покупки."})
+        telegram_api("sendMessage", {"chat_id": chat["id"], "text": "По вопросам платежей и начисления игровых монет напиши создателю: @deIaywork. Сохрани квитанцию Telegram Stars и укажи дату и пакет покупки."})
 
 
 @app.get("/terms")
 def terms_page():
-    return """<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Условия Cloud Clicker</title><body style='font:16px/1.6 system-ui;max-width:760px;margin:40px auto;padding:0 18px;background:#080b10;color:#e6f2ff'><h1>Условия покупок Cloud Clicker</h1><p>Покупки в Telegram Mini App проводятся в Telegram Stars (XTR). Счёт и оплата обрабатываются Telegram.</p><p>Cloudcoin — внутриигровая цифровая валюта Cloud Clicker. Она предназначена только для использования в игре, не является криптовалютой, электронными деньгами или денежным балансом, не имеет гарантированной денежной стоимости и не подлежит выводу или обмену на реальные деньги.</p><p>Cloudcoin начисляется на игровой аккаунт после получения сервером подтверждения успешного платежа Telegram. Не закрывай приложение до завершения платёжного окна. Если покупка оплачена, но Cloudcoin не появились, обратись в поддержку и приложи информацию из квитанции.</p><p>Покупка связана с Telegram ID аккаунта, с которого была открыта Mini App. Не передавай другим людям доступ к аккаунту.</p><p>Поддержка по покупкам: <a style='color:#9edaff' href='https://t.me/deIaywork'>@deIaywork</a>. Условия могут обновляться; перед покупкой проверь актуальную версию этой страницы.</p><p><a style='color:#9edaff' href='/'>Вернуться в игру</a></p></body></html>"""
+    return """<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Условия Cloud Clicker</title><body style='font:16px/1.6 system-ui;max-width:760px;margin:40px auto;padding:0 18px;background:#080b10;color:#e6f2ff'><h1>Условия покупок Cloud Clicker</h1><p>Покупки в Telegram Mini App проводятся в Telegram Stars (XTR). Счёт и оплата обрабатываются Telegram.</p><p>Игровая валюта — валюта активной эпохи в Cloud Clicker. Она предназначена только для использования в игре, не является криптовалютой, электронными деньгами или денежным балансом, не имеет гарантированной денежной стоимости и не подлежит выводу или обмену на реальные деньги.</p><p>Игровая валюта начисляется на игровой аккаунт после получения сервером подтверждения успешного платежа Telegram. Не закрывай приложение до завершения платёжного окна. Если покупка оплачена, но игровые монеты не появились, обратись в поддержку и приложи информацию из квитанции.</p><p>Покупка связана с Telegram ID аккаунта, с которого была открыта Mini App. Не передавай другим людям доступ к аккаунту.</p><p>Поддержка по покупкам: <a style='color:#9edaff' href='https://t.me/deIaywork'>@deIaywork</a>. Условия могут обновляться; перед покупкой проверь актуальную версию этой страницы.</p><p><a style='color:#9edaff' href='/'>Вернуться в игру</a></p></body></html>"""
 
 
 @app.post("/telegram/webhook")

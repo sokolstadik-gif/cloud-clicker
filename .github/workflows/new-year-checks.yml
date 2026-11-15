@@ -1,0 +1,194 @@
+name: New Year update checks
+
+on:
+  push:
+    branches:
+      - feature/new-year-update-2027
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  python-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q .
+      - name: Check browser JavaScript syntax
+        run: node --check static/app.js
+      - name: Run domain rule tests
+        run: python -m unittest discover -s tests -p "test_new_year_rules.py" -v
+      - name: Smoke-test SQLite migration and state API
+        env:
+          DATABASE_URL: ""
+          DATABASE_PATH: /tmp/cloud-clicker-new-year-smoke.db
+        run: |
+          python - <<'PY'
+          import app
+          from concurrent.futures import ThreadPoolExecutor
+          from new_year_rules import era_power_multiplier
+          assert [era_power_multiplier(i) for i in range(1, 5)] == [1, 4, 16, 64]
+          client = app.app.test_client()
+          response = client.get("/api/state")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          with client.session_transaction() as session:
+              player_id = session["player_id"]
+              csrf = session["csrf_token"]
+          winter = client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": csrf})
+          assert winter.status_code == 200, winter.get_data(as_text=True)
+          assert winter.get_json()["reward"] == 10
+          duplicate = client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": csrf})
+          assert duplicate.status_code == 409
+          race_player_id = "a" * 32
+          with app.db_connection() as conn:
+              app.ensure_player(conn, race_player_id)
+          race_clients = [app.app.test_client(), app.app.test_client()]
+          for race_client in race_clients:
+              with race_client.session_transaction() as race_session:
+                  race_session["player_id"] = race_player_id
+                  race_session["csrf_token"] = "race-csrf"
+          def race_calendar_claim(race_client):
+              return race_client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": "race-csrf"}).status_code
+          with ThreadPoolExecutor(max_workers=2) as pool:
+              race_statuses = list(pool.map(race_calendar_claim, race_clients))
+          assert sorted(race_statuses) == [200, 409], race_statuses
+          with app.db_connection() as conn:
+              race_tickets = conn.execute("SELECT tickets FROM winter_event_players WHERE player_id = ?", (race_player_id,)).fetchone()["tickets"]
+              assert race_tickets == 10
+          with app.db_connection() as conn:
+              for day_number in range(2, 8):
+                  conn.execute(
+                      "INSERT INTO winter_calendar_claims (player_id, day_number, reward, claimed_at) VALUES (?, ?, ?, 0)",
+                      (player_id, day_number, 10 + (day_number - 1) * 2),
+                  )
+          winter_quest = client.post("/api/winter/quest/claim", json={"id": "calendar_7"}, headers={"X-CSRF-Token": csrf})
+          assert winter_quest.status_code == 200, winter_quest.get_data(as_text=True)
+          assert winter_quest.get_json()["reward"] == 25
+          duplicate_winter_quest = client.post("/api/winter/quest/claim", json={"id": "calendar_7"}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_winter_quest.status_code == 409
+          with app.db_connection() as conn:
+              conn.execute(
+                  "UPDATE players SET coins = 1234, total_earned = 1234, total_taps = 5000, tap_level = 2 WHERE id = ?",
+                  (player_id,),
+              )
+          response = client.get("/api/state")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          state = response.get_json()["state"]
+          inviter_code = state["referrals"]["code"]
+          assert state["era"]["current"] == 1
+          assert state["era"]["currency"] == "Cloudcoin"
+          assert state["era"]["progress"]["unlocked"] is True
+          transition = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
+          assert transition.status_code == 200, transition.get_data(as_text=True)
+          after = transition.get_json()["state"]
+          assert after["era"]["current"] == 2
+          assert after["tap_power"] == 4
+          tap_upgrade = next(item for item in after["upgrades"] if item["id"] == "tap")
+          assert tap_upgrade["description"] == "+4 Cloudmoney за каждое нажатие"
+          assert after["coins"] == 0
+          assert after["total_taps"] == 5000
+          assert after["winter_event"]["tickets"] == 35
+          assert after["profile"]["public_code"]
+          profile_response = client.get("/api/profile/" + after["profile"]["public_code"])
+          assert profile_response.status_code == 200
+          assert "telegram_id" not in profile_response.get_json()["profile"]
+          profile_update = client.post("/api/profile/update", json={"avatar": "🌌", "frame": "cosmic"}, headers={"X-CSRF-Token": csrf})
+          assert profile_update.status_code == 200, profile_update.get_data(as_text=True)
+          assert profile_update.get_json()["state"]["profile"]["frame"] == "cosmic"
+          for category in ["earned", "taps", "invites", "achievements", "eras"]:
+              board = client.get("/api/leaderboard?sort=" + category)
+              assert board.status_code == 200
+              assert board.get_json()["sort"] == category
+          with app.db_connection() as conn:
+              conn.execute("UPDATE winter_event_players SET tickets = 1000 WHERE player_id = ?", (player_id,))
+          cosmetic = client.post("/api/winter/shop/purchase", json={"item_code": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
+          assert cosmetic.status_code == 200, cosmetic.get_data(as_text=True)
+          assert cosmetic.get_json()["state"]["winter_event"]["tickets"] == 920
+          duplicate_cosmetic = client.post("/api/winter/shop/purchase", json={"item_code": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_cosmetic.status_code == 409
+          equip_cosmetic = client.post("/api/profile/update", json={"avatar": "🎅", "frame": "cosmic", "cosmetic": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
+          assert equip_cosmetic.status_code == 200, equip_cosmetic.get_data(as_text=True)
+          assert equip_cosmetic.get_json()["state"]["profile"]["equipped_cosmetic"] == "era1_santa_hat"
+          archive = after["era"]["archive"]
+          first = next(item for item in archive if item["era"] == 1)
+          assert first["balance"] == 1234
+          assert first["earned"] == 1234
+          assert first["taps"] == 5000
+          assert first["levels"]["tap"] == 2
+          achievement = client.post("/api/achievement/claim", json={"id": "taps_1000"}, headers={"X-CSRF-Token": csrf})
+          assert achievement.status_code == 200, achievement.get_data(as_text=True)
+          assert achievement.get_json()["reward"] == 500
+          duplicate_achievement = client.post("/api/achievement/claim", json={"id": "taps_1000"}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_achievement.status_code == 409
+          with app.db_connection() as conn:
+              app.ensure_player(conn, "f" * 32)
+              for gift_id, effect in [("1" * 32, "income_10"), ("2" * 32, "tap_plus_5"), ("3" * 32, "tap_double")]:
+                  conn.execute(
+                      """INSERT INTO player_gifts
+                         (id, sender_id, receiver_id, gift_code, kind, rarity, effect, duration_seconds, created_at, status)
+                         VALUES (?, ?, ?, ?, 'boost', 'common', ?, 3600, 0, 'inventory')""",
+                      (gift_id, "f" * 32, player_id, "warm_glow", effect),
+                  )
+          for gift_id in ["1" * 32, "2" * 32]:
+              activated = client.post("/api/gifts/activate", json={"gift_id": gift_id}, headers={"X-CSRF-Token": csrf})
+              assert activated.status_code == 200, activated.get_data(as_text=True)
+          duplicate_boost = client.post("/api/gifts/activate", json={"gift_id": "1" * 32}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_boost.status_code == 409
+          third_boost = client.post("/api/gifts/activate", json={"gift_id": "3" * 32}, headers={"X-CSRF-Token": csrf})
+          assert third_boost.status_code == 409
+          assert third_boost.get_json()["state"]["gifts"]["active_boosts"] == 2
+          tap = client.post("/api/click", json={"count": 1}, headers={"X-CSRF-Token": csrf})
+          assert tap.status_code == 200, tap.get_data(as_text=True)
+          assert tap.get_json()["earned"] == 10
+          with app.db_connection() as conn:
+              conn.execute("UPDATE player_gifts SET expires_at = 0 WHERE id = ?", ("1" * 32,))
+          expired_state = client.get("/api/state").get_json()["state"]
+          expired_gift = next(item for item in expired_state["gifts"]["inventory"] if item["id"] == "1" * 32)
+          assert expired_gift["status"] == "expired"
+          freed_slot = client.post("/api/gifts/activate", json={"gift_id": "3" * 32}, headers={"X-CSRF-Token": csrf})
+          assert freed_slot.status_code == 200, freed_slot.get_data(as_text=True)
+          assert freed_slot.get_json()["state"]["gifts"]["active_boosts"] == 2
+          with app.db_connection() as conn:
+              app.ensure_player(conn, "f" * 32)
+              conn.execute(
+                  "INSERT OR IGNORE INTO telegram_accounts (telegram_id, player_id, username, first_name, last_name, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, 0, 0)",
+                  ("9000000000001", "f" * 32, "friend", "Friend", "",),
+              )
+              conn.execute(
+                  "INSERT OR IGNORE INTO referral_codes (player_id, code, created_at) VALUES (?, ?, 0)",
+                  ("f" * 32, "friendcode"),
+              )
+          app.validate_telegram_init_data = lambda raw: {"id": 9000000000001, "username": "friend", "first_name": "Friend", "last_name": "", "start_param": "ref_" + inviter_code}
+          friend_client = app.app.test_client()
+          friend_state = friend_client.get("/api/state", headers={"X-Telegram-Init-Data": "friend"})
+          assert friend_state.status_code == 200, friend_state.get_data(as_text=True)
+          with app.db_connection() as conn:
+              pending = conn.execute("SELECT status FROM referrals WHERE invitee_id = ?", ("f" * 32,)).fetchone()
+              assert pending["status"] == "pending"
+              conn.execute("UPDATE players SET total_taps = 100 WHERE id = ?", ("f" * 32,))
+          with friend_client.session_transaction() as friend_session:
+              friend_csrf = friend_session["csrf_token"]
+          friend_tap = friend_client.post("/api/click", json={"count": 1}, headers={"X-CSRF-Token": friend_csrf, "X-Telegram-Init-Data": "friend"})
+          assert friend_tap.status_code == 200, friend_tap.get_data(as_text=True)
+          with app.db_connection() as conn:
+              active_referral = conn.execute("SELECT status FROM referrals WHERE invitee_id = ?", ("f" * 32,)).fetchone()
+              assert active_referral["status"] == "active"
+          app.validate_telegram_init_data = lambda raw: {"id": 9000000000002, "username": "sender", "first_name": "Sender", "last_name": ""}
+          sent_gift = client.post(
+              "/api/gifts/send", json={"recipient_code": "friendcode", "gift_code": "snowflake_charm", "note": "С праздником!"},
+              headers={"X-CSRF-Token": csrf, "X-Telegram-Init-Data": "test"},
+          )
+          assert sent_gift.status_code == 200, sent_gift.get_data(as_text=True)
+          with app.db_connection() as conn:
+              received = conn.execute("SELECT status FROM player_gifts WHERE receiver_id = ? AND sender_id = ?", ("f" * 32, player_id)).fetchone()
+              assert received["status"] == "collected"
+          blocked = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
+          assert blocked.status_code == 409
+          print("SQLite/PostgreSQL, fourfold eras, archive, calendar, winter shop/quests, gifts, profiles and leaderboards: OK")
+          PY

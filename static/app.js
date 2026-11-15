@@ -48,8 +48,405 @@ function floatCoin(x, y, text = '+1 CC') {
   setTimeout(() => node.remove(), 750);
 }
 
+function renderEra(state) {
+  const era = state.era;
+  if (!era) return;
+  $('eraPanelTitle').textContent = era.name;
+  $('eraCurrency').textContent = `Валюта эпохи: ${era.currency}`;
+  $('eraNumber').textContent = `ЭПОХА ${era.current} / 4`;
+  $('eraName').textContent = era.currency;
+  $('currencyLabel').textContent = era.currency.toUpperCase();
+  const progress = era.progress || {};
+  const names = {
+    taps: 'Нажатия только в первой эпохе',
+    upgrade_purchases: 'Покупки улучшений только во второй эпохе',
+    coins_earned_era2_and_era3: 'Монеты, заработанные во второй и третьей эпохах'
+  };
+  if (progress.next_era) {
+    $('eraRequirement').textContent = `Для эпохи ${progress.next_era}: ${names[progress.metric] || 'условие перехода'}`;
+    $('eraProgressText').textContent = `${fmt.format(progress.progress)} / ${fmt.format(progress.target)}`;
+    $('eraProgressFill').style.width = `${Math.min(100, progress.target ? progress.progress / progress.target * 100 : 0)}%`;
+    $('eraTransitionBtn').hidden = false;
+    $('eraTransitionBtn').disabled = !progress.unlocked;
+    $('eraTransitionBtn').textContent = progress.unlocked
+      ? `Открыть эпоху ${progress.next_era} · переход необратим`
+      : `Осталось: ${fmt.format(progress.remaining)}`;
+  } else {
+    $('eraRequirement').textContent = 'Ты достиг последней эпохи — Божественного измерения.';
+    $('eraProgressText').textContent = 'МАКСИМАЛЬНАЯ ЭПОХА';
+    $('eraProgressFill').style.width = '100%';
+    $('eraTransitionBtn').hidden = true;
+  }
+  const archive = $('eraArchive');
+  archive.replaceChildren();
+  (era.archive || []).forEach((item) => {
+    const entry = document.createElement('span');
+    entry.className = 'era-archive-item';
+    entry.textContent = `${item.name}: баланс ${fmt.format(item.balance)} ${item.currency} · заработано ${fmt.format(item.earned)} · ${fmt.format(item.taps)} тапов · улучшений ${fmt.format(item.upgrade_purchases)}`;
+    archive.append(entry);
+  });
+}
+
+function renderProfile(state) {
+  const profile = state.profile;
+  if (!profile) return;
+  $('profileAvatar').value = profile.avatar;
+  $('profileFrame').value = profile.frame;
+  const cosmeticSelect = $('profileCosmetic');
+  cosmeticSelect.replaceChildren();
+  const noCosmetic = document.createElement('option');
+  noCosmetic.value = '';
+  noCosmetic.textContent = 'Без украшения';
+  cosmeticSelect.append(noCosmetic);
+  (profile.cosmetics || []).forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.code;
+    option.textContent = `${item.icon} ${item.title}`;
+    cosmeticSelect.append(option);
+  });
+  cosmeticSelect.value = profile.equipped_cosmetic || '';
+  const equipped = (profile.cosmetics || []).find(item => item.code === profile.equipped_cosmetic);
+  $('equippedCosmetic').textContent = equipped?.icon || '';
+  $('publicProfileLink').value = `${window.location.origin}${profile.url}`;
+}
+
+async function saveProfile() {
+  try {
+    const data = await api('/api/profile/update', 'POST', {
+      avatar: $('profileAvatar').value,
+      frame: $('profileFrame').value,
+      cosmetic: $('profileCosmetic').value,
+    });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast('Оформление профиля сохранено!');
+    else showToast(data.error || 'Не удалось сохранить профиль.');
+  } catch (error) { showToast(error.message); }
+}
+
+async function openPublicProfile(code) {
+  try {
+    const data = await api(`/api/profile/${encodeURIComponent(code)}`);
+    if (!data.ok) throw new Error(data.error || 'Профиль не найден.');
+    const profile = data.profile;
+    $('profileDialogAvatar').textContent = profile.avatar;
+    $('profileDialogAvatar').className = `creator-avatar profile-frame-${profile.frame}`;
+    $('profileDialogTitle').textContent = profile.nickname;
+    $('profileDialogEra').textContent = `Эпоха ${profile.era} · ${profile.frame} рамка`;
+    if (profile.equipped_cosmetic) {
+      const cosmetic = document.createElement('p');
+      cosmetic.textContent = `Украшение: ${profile.equipped_cosmetic_icon} ${profile.equipped_cosmetic_title}`;
+      $('profileDialogEra').append(cosmetic);
+    }
+    const stats = $('profileDialogStats');
+    stats.replaceChildren();
+    [
+      [`Заработано ${fmt.format(profile.total_earned)}`, 'монет'],
+      [`Тапы ${fmt.format(profile.total_taps)}`, 'нажатий'],
+      [`Достижения ${profile.achievements.length}`, 'открыто'],
+    ].forEach(([value, label]) => {
+      const item = document.createElement('div');
+      const strong = document.createElement('b');
+      strong.textContent = value;
+      const small = document.createElement('small');
+      small.textContent = label;
+      item.append(strong, small);
+      stats.append(item);
+    });
+    const collection = $('profileDialogCollection');
+    collection.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = 'Коллекция и достижения';
+    collection.append(heading);
+    [...profile.achievements.map(item => `${item.badge} ${item.title}`),
+      ...profile.cosmetics.map(item => `${item.icon} ${item.title}`),
+      ...profile.gifts.map(item => `${item.icon} ${item.title}`)].forEach((value) => {
+      const line = document.createElement('p');
+      line.textContent = value;
+      collection.append(line);
+    });
+    if (collection.children.length === 1) {
+      const empty = document.createElement('p');
+      empty.textContent = 'Пока коллекция пуста.';
+      collection.append(empty);
+    }
+    $('profileDialog').showModal();
+  } catch (error) { showToast(error.message); }
+}
+
+function renderEraTab(state) {
+  const era = state.era;
+  if (!era) return;
+  $('eraTabPanelTitle').textContent = era.name;
+  $('eraTabCurrency').textContent = `Валюта эпохи: ${era.currency}`;
+  $('eraTabNumber').textContent = `ЭПОХА ${era.current} / 4`;
+  const progress = era.progress || {};
+  const names = {
+    taps: 'Нажатия только в первой эпохе',
+    upgrade_purchases: 'Покупки улучшений только во второй эпохе',
+    coins_earned_era2_and_era3: 'Монеты, заработанные во второй и третьей эпохах'
+  };
+  if (progress.next_era) {
+    $('eraTabRequirement').textContent = `Для эпохи ${progress.next_era}: ${names[progress.metric] || 'условие перехода'}`;
+    $('eraTabProgressText').textContent = `${fmt.format(progress.progress)} / ${fmt.format(progress.target)}`;
+    $('eraTabProgressFill').style.width = `${Math.min(100, progress.target ? progress.progress / progress.target * 100 : 0)}%`;
+    $('eraTabTransitionBtn').hidden = false;
+    $('eraTabTransitionBtn').disabled = !progress.unlocked;
+    $('eraTabTransitionBtn').textContent = progress.unlocked
+      ? `Открыть эпоху ${progress.next_era} · переход необратим`
+      : `Осталось: ${fmt.format(progress.remaining)}`;
+  } else {
+    $('eraTabRequirement').textContent = 'Ты достиг последней эпохи — Божественного измерения.';
+    $('eraTabProgressText').textContent = 'МАКСИМАЛЬНАЯ ЭПОХА';
+    $('eraTabProgressFill').style.width = '100%';
+    $('eraTabTransitionBtn').hidden = true;
+  }
+  const archive = $('eraTabArchive');
+  archive.replaceChildren();
+  (era.archive || []).forEach((item) => {
+    const entry = document.createElement('span');
+    entry.className = 'era-archive-item';
+    entry.textContent = `${item.name}: баланс ${fmt.format(item.balance)} ${item.currency} · заработано ${fmt.format(item.earned)} · ${fmt.format(item.taps)} тапов · улучшений ${fmt.format(item.upgrade_purchases)}`;
+    archive.append(entry);
+  });
+}
+
+function renderReferrals(state) {
+  const data = state.referrals;
+  if (!data) return;
+  $('referralLink').value = data.link;
+  $('referralInvited').textContent = fmt.format(data.invited);
+  $('referralActive').textContent = fmt.format(data.active);
+  $('referralPending').textContent = fmt.format(data.pending);
+  $('referralRewards').textContent = fmt.format(data.rewards);
+}
+
+function renderGifts(state) {
+  const data = state.gifts;
+  if (!data) return;
+  $('giftDailyLimit').textContent = `${fmt.format(data.sent_today)} / ${fmt.format(data.daily_limit)} сегодня`;
+  $('giftActiveCount').textContent = `Активно ${data.active_boosts} / 2 буста`;
+  const select = $('giftSelect');
+  if (select.options.length === 0) {
+    data.catalog.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.code;
+      option.textContent = `${item.icon} ${item.title} · ${item.rarity === 'common' ? 'обычный' : item.rarity === 'rare' ? 'редкий' : item.rarity === 'epic' ? 'эпический' : 'легендарный'}`;
+      select.append(option);
+    });
+  }
+  $('giftSendBtn').disabled = data.remaining_today <= 0;
+  const root = $('giftInventory');
+  root.replaceChildren();
+  if (!data.inventory.length) {
+    const empty = document.createElement('div');
+    empty.className = 'loading-card panel';
+    empty.textContent = 'Пока подарков нет. Попроси друга отправить тебе что-нибудь праздничное!';
+    root.append(empty);
+  }
+  data.inventory.forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `gift-card panel rarity-${item.rarity}`;
+    const icon = document.createElement('div');
+    icon.className = 'gift-card-icon';
+    icon.textContent = item.icon;
+    const body = document.createElement('div');
+    body.className = 'gift-card-body';
+    const title = document.createElement('h3');
+    title.textContent = item.title;
+    const description = document.createElement('p');
+    description.textContent = item.description;
+    const sender = document.createElement('small');
+    sender.textContent = `От игрока: ${item.sender}${item.note ? ' · ' + item.note : ''}`;
+    const status = document.createElement('small');
+    const statusNames = { inventory: 'В инвентаре', active: `Активен · ${Math.ceil(item.remaining_seconds / 60)} мин.`, expired: 'Время действия закончилось', collected: 'В коллекции' };
+    status.textContent = statusNames[item.status] || item.status;
+    body.append(title, description, sender, status);
+    const action = document.createElement('div');
+    if (item.can_activate) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary-button';
+      button.textContent = 'Активировать';
+      button.disabled = data.active_boosts >= 2;
+      button.addEventListener('click', () => activateGift(item.id));
+      action.append(button);
+    }
+    card.append(icon, body, action);
+    root.append(card);
+  });
+  const sentRoot = $('giftSentHistory');
+  sentRoot.replaceChildren();
+  if (!data.sent_history?.length) {
+    const empty = document.createElement('div');
+    empty.className = 'loading-card panel';
+    empty.textContent = 'Ты ещё не отправлял подарки.';
+    sentRoot.append(empty);
+  } else {
+    data.sent_history.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'gift-sent-row panel';
+      const text = document.createElement('span');
+      text.textContent = `${item.icon} ${item.title} → ${item.receiver}`;
+      const status = document.createElement('small');
+      status.textContent = item.status === 'collected' ? 'В коллекции' : item.status === 'active' ? 'Активирован' : item.status === 'expired' ? 'Истёк' : 'В инвентаре';
+      row.append(text, status);
+      sentRoot.append(row);
+    });
+  }
+}
+
+async function sendGift(event) {
+  event.preventDefault();
+  const recipient_code = $('giftRecipientCode').value.trim();
+  const gift_code = $('giftSelect').value;
+  const note = $('giftNote').value.trim();
+  $('giftSendBtn').disabled = true;
+  try {
+    const data = await api('/api/gifts/send', 'POST', { recipient_code, gift_code, note });
+    if (data.state) renderState(data.state);
+    if (data.ok) {
+      $('giftRecipientCode').value = '';
+      $('giftNote').value = '';
+      showToast(data.message || 'Подарок отправлен!');
+    } else showToast(data.error || 'Не удалось отправить подарок.');
+  } catch (error) { showToast(error.message); }
+  finally { $('giftSendBtn').disabled = false; }
+}
+
+async function activateGift(gift_id) {
+  try {
+    const data = await api('/api/gifts/activate', 'POST', { gift_id });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(data.message || 'Подарочный буст активирован!');
+    else showToast(data.error || 'Не удалось активировать подарок.');
+  } catch (error) { showToast(error.message); }
+}
+
+function renderWinterEvent(state) {
+  const event = state.winter_event;
+  if (!event) return;
+  $('winterTicketCount').textContent = `🎟 ${fmt.format(event.tickets)} билетиков`;
+  const calendar = event.calendar || {};
+  const claimed = new Set(event.claimed_days || []);
+  const day = Number(calendar.day || 0);
+  if (calendar.finished) {
+    $('winterDayTitle').textContent = 'Календарь завершён';
+    $('winterDayDescription').textContent = 'Все 31 день события позади. Накопленные билетики остаются у тебя.';
+    $('winterClaimBtn').hidden = true;
+  } else if (!calendar.active) {
+    $('winterDayTitle').textContent = 'Скоро открытие';
+    $('winterDayDescription').textContent = 'Праздничный календарь ещё не начался.';
+    $('winterClaimBtn').hidden = true;
+  } else {
+    $('winterDayTitle').textContent = `День ${day} из 31`;
+    $('winterDayDescription').textContent = calendar.claimed_today
+      ? 'Сегодняшний подарок уже получен.'
+      : `Сегодня можно забрать ${fmt.format(calendar.today_reward)} билетиков. Пропущенный день сгорает.`;
+    $('winterClaimBtn').hidden = false;
+    $('winterClaimBtn').disabled = Boolean(calendar.claimed_today);
+    $('winterClaimBtn').textContent = calendar.claimed_today
+      ? 'Получено ✓'
+      : `Забрать +${fmt.format(calendar.today_reward)} 🎟`;
+  }
+  const root = $('winterDays');
+  root.replaceChildren();
+  for (let number = 1; number <= 31; number += 1) {
+    const tile = document.createElement('div');
+    const isClaimed = claimed.has(number);
+    const isCurrent = number === day && calendar.active && !isClaimed;
+    const isExpired = number < day && !isClaimed;
+    tile.className = `winter-day${isClaimed ? ' is-claimed' : isCurrent ? ' is-current' : isExpired ? ' is-expired' : ''}`;
+    const numberLabel = document.createElement('b');
+    numberLabel.textContent = String(number);
+    const rewardLabel = document.createElement('span');
+    rewardLabel.textContent = `+${fmt.format(10 + (number - 1) * 2)}`;
+    const status = document.createElement('small');
+    status.textContent = isClaimed ? 'Получено' : isExpired ? 'Пропущено' : isCurrent ? 'Сегодня' : 'Закрыто';
+    tile.append(numberLabel, rewardLabel, status);
+    root.append(tile);
+  }
+  const questRoot = $('winterQuests');
+  questRoot.replaceChildren();
+  (event.quests || []).forEach((quest) => {
+    const card = document.createElement('article');
+    card.className = `winter-quest panel${quest.claimed ? ' is-claimed' : quest.unlocked ? ' is-unlocked' : ''}`;
+    const icon = document.createElement('div');
+    icon.className = 'winter-quest-icon';
+    icon.textContent = quest.icon;
+    const body = document.createElement('div');
+    const title = document.createElement('h3');
+    title.textContent = quest.title;
+    const description = document.createElement('p');
+    description.textContent = quest.description;
+    const progress = document.createElement('small');
+    progress.textContent = `${fmt.format(quest.progress)} / ${fmt.format(quest.target)}`;
+    const track = document.createElement('div');
+    track.className = 'reward-track compact';
+    const fill = document.createElement('div');
+    fill.style.width = `${quest.percent}%`;
+    track.append(fill);
+    body.append(title, description, progress, track);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary-button';
+    button.textContent = quest.claimed ? 'Получено' : quest.unlocked ? `Забрать +${quest.reward} 🎟` : `+${quest.reward} 🎟`;
+    button.disabled = quest.claimed || !quest.unlocked;
+    if (quest.unlocked && !quest.claimed) button.addEventListener('click', () => claimWinterQuest(quest.id));
+    card.append(icon, body, button);
+    questRoot.append(card);
+  });
+  const shop = $('winterShop');
+  shop.replaceChildren();
+  (event.shop || []).forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `winter-shop-item panel${item.owned ? ' is-owned' : ''}`;
+    const icon = document.createElement('div');
+    icon.className = 'winter-shop-icon';
+    icon.textContent = item.icon;
+    const title = document.createElement('h3');
+    title.textContent = item.title;
+    const description = document.createElement('p');
+    description.textContent = item.description;
+    const era = document.createElement('small');
+    era.textContent = `Открывается с эпохи ${item.era_required}`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = item.owned ? 'secondary-button' : 'primary-button';
+    button.textContent = item.owned ? 'В коллекции ✓' : `Купить · ${fmt.format(item.price)} 🎟`;
+    button.disabled = item.owned || !item.available || event.tickets < item.price;
+    if (!item.owned && item.available) button.addEventListener('click', () => purchaseWinterItem(item.code));
+    card.append(icon, title, description, era, button);
+    shop.append(card);
+  });
+}
+
+async function claimWinterQuest(id) {
+  try {
+    const data = await api('/api/winter/quest/claim', 'POST', { id });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(`Зимнее задание выполнено: +${fmt.format(data.reward)} билетиков!`);
+    else showToast(data.error || 'Задание пока недоступно.');
+  } catch (error) { showToast(error.message); }
+}
+
+async function purchaseWinterItem(item_code) {
+  try {
+    const data = await api('/api/winter/shop/purchase', 'POST', { item_code });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(data.message || 'Предмет добавлен в коллекцию!');
+    else showToast(data.error || 'Не удалось купить предмет.');
+  } catch (error) { showToast(error.message); }
+}
+
 function renderState(state) {
   currentState = state;
+  const currency = state.era?.currency || 'Cloudcoin';
+  renderEra(state);
+  renderEraTab(state);
+  renderWinterEvent(state);
+  renderGifts(state);
+  renderReferrals(state);
+  renderProfile(state);
   $('coins').textContent = fmt.format(state.coins);
   $('tapPower').textContent = `+${fmt.format(state.tap_power)}`;
   $('passiveIncome').textContent = `+${fmt.format(state.passive_per_sec)}`;
@@ -59,14 +456,18 @@ function renderState(state) {
   $('levelPill').textContent = `Уровень ${1 + state.total_upgrade_levels}`;
   if (document.activeElement !== $('nicknameInput')) $('nicknameInput').value = state.nickname;
   $('dailyBtn').disabled = !state.daily_available;
-  $('dailyBtn').textContent = state.daily_available ? `Забрать +${fmt.format(state.daily_reward)} CC` : 'Уже получено ✓';
+  $('dailyBtn').textContent = state.daily_available ? `Забрать +${fmt.format(state.daily_reward)} ${currency}` : 'Уже получено ✓';
   $('tapBtn').disabled = state.energy < 1;
 
   $('statsBalance').textContent = fmt.format(state.coins);
+  $('statsBalance').nextElementSibling.textContent = currency;
   $('statsEarned').textContent = fmt.format(state.total_earned);
+  $('statsEarned').nextElementSibling.textContent = `${currency} за всё время`;
   $('statsTaps').textContent = fmt.format(state.total_taps);
   $('statsTapPower').textContent = `+${fmt.format(state.tap_power)}`;
+  $('statsTapPower').nextElementSibling.textContent = `${currency} за нажатие`;
   $('statsPassive').textContent = `+${fmt.format(state.passive_per_sec)}`;
+  $('statsPassive').nextElementSibling.textContent = `${currency} в секунду`;
   $('statsUpgrades').textContent = fmt.format(state.total_upgrade_levels);
   $('statsEnergy').textContent = `${fmt.format(Math.floor(state.energy))} / ${fmt.format(state.max_energy)}`;
   $('statsRegen').textContent = `Восстановление ${state.energy_regen.toFixed(1).replace('.', ',')} ед./сек.`;
@@ -75,6 +476,7 @@ function renderState(state) {
 
   renderUpgrades(state);
   renderRewards(state);
+  renderAchievements(state);
   renderCombo(state);
   renderCipher(state);
   renderQuests(state);
@@ -109,11 +511,48 @@ function renderUpgrades(state) {
     buy.type = 'button';
     buy.className = 'buy-button';
     buy.disabled = state.coins < item.cost;
-    buy.textContent = `Купить · ${fmt.format(item.cost)} CC`;
+    buy.textContent = `Купить · ${fmt.format(item.cost)} ${state.era.currency}`;
     buy.addEventListener('click', () => buyUpgrade(item.id));
     card.append(top, category, title, description, buy);
     root.append(card);
   }
+}
+
+function renderAchievements(state) {
+  const root = $('achievementsList');
+  if (!root) return;
+  root.replaceChildren();
+  (state.achievements || []).forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `reward-card panel${item.claimed ? ' is-claimed' : item.unlocked ? ' is-unlocked' : ''}`;
+    const badge = document.createElement('div');
+    badge.className = 'reward-badge';
+    badge.textContent = item.badge || '★';
+    const body = document.createElement('div');
+    body.className = 'reward-body';
+    const title = document.createElement('h3');
+    title.textContent = item.title;
+    const description = document.createElement('p');
+    description.textContent = item.description;
+    const meta = document.createElement('p');
+    meta.textContent = `${fmt.format(item.progress)} / ${fmt.format(item.target)} · награда ${fmt.format(item.reward)} ${currentState?.era?.currency || 'монет'}`;
+    const track = document.createElement('div');
+    track.className = 'reward-track compact';
+    const fill = document.createElement('div');
+    fill.style.width = `${item.percent}%`;
+    track.append(fill);
+    body.append(title, description, meta, track);
+    const action = document.createElement('div');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'reward-claim';
+    button.textContent = item.claimed ? 'Получено' : item.unlocked ? 'Забрать' : `${item.percent}%`;
+    button.disabled = item.claimed || !item.unlocked;
+    if (item.unlocked && !item.claimed) button.addEventListener('click', () => claimAchievement(item.id));
+    action.append(button);
+    card.append(badge, body, action);
+    root.append(card);
+  });
 }
 
 function renderRewards(state) {
@@ -152,7 +591,7 @@ function renderRewards(state) {
     const title = document.createElement('h3');
     title.textContent = `${fmt.format(item.taps)} тапов`;
     const description = document.createElement('p');
-    description.textContent = `Награда: ${fmt.format(item.reward)} Cloudcoin`;
+    description.textContent = `Награда: ${fmt.format(item.reward)} ${state.era.currency}`;
     const progress = document.createElement('div');
     progress.className = 'reward-track compact';
     const progressFill = document.createElement('div');
@@ -205,7 +644,7 @@ function renderCombo(state) {
   const doneCount = combo.cards.filter((item) => item.done).length;
   $('comboStatus').textContent = combo.claimed ? 'Награда уже получена сегодня' : `Выполнено ${doneCount} из 3`;
   $('comboClaimBtn').disabled = !combo.completed || combo.claimed;
-  $('comboClaimBtn').textContent = combo.claimed ? 'Получено ✓' : `Забрать ${fmt.format(combo.reward)} CC`;
+  $('comboClaimBtn').textContent = combo.claimed ? 'Получено ✓' : `Забрать ${fmt.format(combo.reward)} ${state.era.currency}`;
 }
 
 function renderCipher(state) {
@@ -216,7 +655,7 @@ function renderCipher(state) {
   $('cipherAnswer').disabled = cipher.claimed;
   $('cipherStatus').textContent = cipher.claimed
     ? 'Секретный код уже активирован сегодня ✓'
-    : `Награда за правильный ответ — ${fmt.format(cipher.reward)} Cloudcoin.`;
+    : `Награда за правильный ответ — ${fmt.format(cipher.reward)} ${state.era.currency}.`;
   $('cipherSubmitBtn').textContent = cipher.claimed ? 'Получено ✓' : 'Проверить';
 }
 
@@ -240,7 +679,7 @@ function renderQuests(state) {
     const progressText = document.createElement('span');
     progressText.textContent = `${fmt.format(quest.progress)} / ${fmt.format(quest.target)}`;
     const rewardText = document.createElement('b');
-    rewardText.textContent = `+${fmt.format(quest.reward)} CC`;
+    rewardText.textContent = `+${fmt.format(quest.reward)} ${state.era.currency}`;
     meta.append(progressText, rewardText);
     const track = document.createElement('div');
     track.className = 'reward-track compact';
@@ -268,7 +707,7 @@ function renderBoosts(state) {
   $('turboStatus').textContent = boosts.turbo_active
     ? `x2 активно · ${boosts.turbo_remaining} сек.`
     : 'Удваивает награду за тап на 30 секунд';
-  $('turboBtn').textContent = boosts.turbo_active ? 'Продлить · 500 CC' : 'Активировать · 500 CC';
+  $('turboBtn').textContent = boosts.turbo_active ? `Продлить · ${fmt.format(boosts.turbo_cost)} ${state.era.currency}` : `Активировать · ${fmt.format(boosts.turbo_cost)} ${state.era.currency}`;
   $('turboBtn').disabled = state.coins < boosts.turbo_cost;
   $('energyBoostStatus').textContent = boosts.energy_full ? 'Энергия уже полная' : 'Мгновенно заполнить шкалу';
   $('energyBoostBtn').disabled = boosts.energy_full || state.coins < boosts.energy_cost;
@@ -290,7 +729,7 @@ async function refreshShop() {
       title.textContent = item.title;
       const amount = document.createElement('strong');
       amount.className = 'shop-coins';
-      amount.textContent = `${fmt.format(item.coins)} Cloudcoin`;
+      amount.textContent = `${fmt.format(item.coins)} ${currentState?.era?.currency || 'Cloudcoin'}`;
       const price = document.createElement('div');
       price.className = 'shop-price';
       price.textContent = `⭐ ${fmt.format(item.stars)} Stars`;
@@ -321,7 +760,7 @@ async function buyStarPackage(packageId) {
     if (tgApp?.openInvoice) {
       tgApp.openInvoice(data.invoice_url, (status) => {
         if (status === 'paid') {
-          showToast('Оплата принята. Начисляем Cloudcoin…');
+          showToast(`Оплата принята. Начисляем ${currentState?.era?.currency || 'валюту текущей эпохи'}…`);
           setTimeout(refreshState, 1200);
           setTimeout(refreshState, 3500);
         } else if (status === 'failed') {
@@ -349,7 +788,8 @@ async function refreshState() {
 
 async function refreshLeaderboard() {
   try {
-    const data = await api('/api/leaderboard');
+    const sort = $('leaderboardSort')?.value || 'earned';
+    const data = await api(`/api/leaderboard?sort=${encodeURIComponent(sort)}`);
     $('myRank').textContent = data.my_rank ? `#${fmt.format(data.my_rank)}` : '—';
     $('statsRank').textContent = data.my_rank ? `#${fmt.format(data.my_rank)}` : '—';
     const root = $('leaderboard');
@@ -369,7 +809,7 @@ async function refreshLeaderboard() {
       rank.textContent = String(player.rank).padStart(2, '0');
       const name = document.createElement('span');
       name.className = 'leader-name';
-      name.textContent = player.nickname;
+      name.textContent = `${player.avatar || '☁️'} ${player.nickname}`;
       if (player.you) {
         const you = document.createElement('small');
         you.textContent = 'это ты';
@@ -377,8 +817,13 @@ async function refreshLeaderboard() {
       }
       const score = document.createElement('strong');
       score.className = 'leader-score';
-      score.textContent = `${fmt.format(player.total_earned)} CC`;
-      row.append(rank, name, score);
+      score.textContent = `${fmt.format(player.score)} ${player.score_label}`;
+      const profileButton = document.createElement('button');
+      profileButton.type = 'button';
+      profileButton.className = 'leader-profile-button';
+      profileButton.textContent = 'Профиль';
+      profileButton.addEventListener('click', () => openPublicProfile(player.profile_code));
+      row.append(rank, name, score, profileButton);
       root.append(row);
     });
   } catch (error) {
@@ -396,10 +841,10 @@ async function drainClicks() {
     if (data.state) renderState(data.state);
     if (data.ok) {
       if (data.accepted_count < count) pendingClicks = 0;
-      if (data.earned >= 5) showToast(`+${fmt.format(data.earned)} Cloudcoin`);
+      if (data.earned >= 5) showToast(`+${fmt.format(data.earned)} ${currentState?.era?.currency || 'монет'}`);
     } else {
       pendingClicks = 0;
-      showToast(data.error || 'Не получилось начислить Cloudcoin.');
+      showToast(data.error || 'Не получилось начислить монеты.');
       if (data.state) renderState(data.state);
     }
   } catch (error) {
@@ -409,6 +854,43 @@ async function drainClicks() {
     clickRequestBusy = false;
     if (pendingClicks > 0) setTimeout(drainClicks, 40);
     refreshLeaderboard();
+  }
+}
+
+async function claimWinterCalendar() {
+  $('winterClaimBtn').disabled = true;
+  try {
+    const data = await api('/api/winter/calendar/claim', 'POST', {});
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(`Новогодний подарок: +${fmt.format(data.reward)} билетиков!`);
+    else showToast(data.error || 'Не удалось получить подарок.');
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function transitionEra() {
+  if (!currentState?.era?.progress?.unlocked) return;
+  const confirmed = window.confirm('Переход необратим. Баланс и улучшения текущей эпохи сохранятся в архиве, а новая эпоха начнётся с нуля. Перейти?');
+  if (!confirmed) return;
+  $('eraTransitionBtn').disabled = true;
+  $('eraTabTransitionBtn').disabled = true;
+  try {
+    const data = await api('/api/era/transition', 'POST', {});
+    if (data.state) renderState(data.state);
+    if (data.ok) {
+      showToast(`Открыта эпоха: ${data.state.era.name}!`);
+      refreshLeaderboard();
+    } else {
+      showToast(data.error || 'Не удалось перейти в новую эпоху.');
+    }
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    if (currentState?.era?.progress?.unlocked) {
+      $('eraTransitionBtn').disabled = false;
+      $('eraTabTransitionBtn').disabled = false;
+    }
   }
 }
 
@@ -424,13 +906,22 @@ async function buyUpgrade(id) {
   } catch (error) { showToast(error.message); }
 }
 
+async function claimAchievement(id) {
+  try {
+    const data = await api('/api/achievement/claim', 'POST', { id });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(`Достижение получено: +${fmt.format(data.reward)} ${data.state.era.currency}!`);
+    else showToast(data.error || 'Награда пока недоступна.');
+  } catch (error) { showToast(error.message); }
+}
+
 async function claimDaily() {
   $('dailyBtn').disabled = true;
   try {
     const data = await api('/api/daily', 'POST', {});
     if (data.state) renderState(data.state);
     if (data.ok) {
-      showToast(`Ежедневный бонус: +${fmt.format(data.state.daily_reward || 250)} Cloudcoin!`);
+      showToast(`Ежедневный бонус: +${fmt.format(data.state.daily_reward || 250)} ${data.state.era.currency}!`);
       refreshLeaderboard();
     } else {
       showToast(data.error || 'Бонус пока недоступен.');
@@ -446,7 +937,7 @@ async function claimTapReward(milestone) {
     const data = await api('/api/tap-reward/claim', 'POST', { milestone });
     if (data.state) renderState(data.state);
     if (data.ok) {
-      showToast(`Награда получена: +${fmt.format(data.reward)} Cloudcoin!`);
+      showToast(`Награда получена: +${fmt.format(data.reward)} ${data.state.era.currency}!`);
       refreshLeaderboard();
     } else {
       showToast(data.error || 'Не удалось получить награду.');
@@ -459,7 +950,7 @@ async function claimCombo() {
   try {
     const data = await api('/api/combo/claim', 'POST', {});
     if (data.state) renderState(data.state);
-    if (data.ok) { showToast(`Комбо выполнено: +${fmt.format(data.reward)} CC!`); refreshLeaderboard(); }
+    if (data.ok) { showToast(`Комбо выполнено: +${fmt.format(data.reward)} ${data.state.era.currency}!`); refreshLeaderboard(); }
     else showToast(data.error || 'Не удалось забрать комбо.');
   } catch (error) { showToast(error.message); }
 }
@@ -471,7 +962,7 @@ async function claimCipher(event) {
   try {
     const data = await api('/api/cipher/claim', 'POST', { answer });
     if (data.state) renderState(data.state);
-    if (data.ok) { $('cipherAnswer').value = ''; showToast(`Шифр разгадан: +${fmt.format(data.reward)} CC!`); refreshLeaderboard(); }
+    if (data.ok) { $('cipherAnswer').value = ''; showToast(`Шифр разгадан: +${fmt.format(data.reward)} ${data.state.era.currency}!`); refreshLeaderboard(); }
     else showToast(data.error || 'Код не принят.');
   } catch (error) { showToast(error.message); }
 }
@@ -480,7 +971,7 @@ async function claimQuest(id) {
   try {
     const data = await api('/api/quest/claim', 'POST', { id });
     if (data.state) renderState(data.state);
-    if (data.ok) { showToast(`Задание выполнено: +${fmt.format(data.reward)} CC!`); refreshLeaderboard(); }
+    if (data.ok) { showToast(`Задание выполнено: +${fmt.format(data.reward)} ${data.state.era.currency}!`); refreshLeaderboard(); }
     else showToast(data.error || 'Награда пока недоступна.');
   } catch (error) { showToast(error.message); }
 }
@@ -507,7 +998,7 @@ async function saveNickname() {
 }
 
 function activateTab(name) {
-  document.querySelectorAll('.tab-button').forEach((button) => {
+document.querySelectorAll('.tab-button').forEach((button) => {
     const active = button.dataset.tab === name;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -537,9 +1028,34 @@ $('tapBtn').addEventListener('click', (event) => {
   if (pendingClicks >= 40) return;
   pendingClicks += 1;
   const multiplier = currentState.boosts?.turbo_active ? 2 : 1;
-  floatCoin(event.clientX || window.innerWidth / 2, event.clientY || window.innerHeight / 2, `+${currentState.tap_power * multiplier} CC`);
+  floatCoin(event.clientX || window.innerWidth / 2, event.clientY || window.innerHeight / 2, `+${currentState.tap_power * multiplier} ${currentState.era.currency}`);
   drainClicks();
 });
+$('eraTransitionBtn').addEventListener('click', transitionEra);
+$('eraTabTransitionBtn').addEventListener('click', transitionEra);
+$('winterClaimBtn').addEventListener('click', claimWinterCalendar);
+$('copyReferralBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('referralLink').value);
+    showToast('Реферальная ссылка скопирована!');
+  } catch {
+    $('referralLink').select();
+    showToast('Выделил ссылку — скопируй её вручную.');
+  }
+});
+$('giftSendForm').addEventListener('submit', sendGift);
+$('saveProfileBtn').addEventListener('click', saveProfile);
+$('copyProfileBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('publicProfileLink').value);
+    showToast('Ссылка на профиль скопирована!');
+  } catch {
+    $('publicProfileLink').select();
+    showToast('Выделил ссылку — скопируй её вручную.');
+  }
+});
+
+$('leaderboardSort').addEventListener('change', refreshLeaderboard);
 $('dailyBtn').addEventListener('click', claimDaily);
 $('saveNameBtn').addEventListener('click', saveNickname);
 $('nicknameInput').addEventListener('keydown', (event) => {
@@ -583,6 +1099,8 @@ creatorDialog.addEventListener('click', (event) => {
   await refreshState();
   await refreshLeaderboard();
   await refreshShop();
+  const requestedProfile = new URLSearchParams(window.location.search).get('profile');
+  if (requestedProfile) await openPublicProfile(requestedProfile);
   setInterval(refreshState, 15000);
   setInterval(refreshLeaderboard, 45000);
 })();
