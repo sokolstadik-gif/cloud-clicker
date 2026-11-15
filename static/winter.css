@@ -1,0 +1,97 @@
+/* Cloud Clicker — New Year Update 2027: shared winter theme */
+:root {
+  --bg: #07111d;
+  --panel: #101d2b;
+  --panel-raised: #17283a;
+  --ink: #f2f7ff;
+  --muted: #9aacc0;
+  --line: #2b4054;
+  --accent: #a9e1ff;
+  --accent-strong: #69c5f4;
+  --accent-soft: #1b3549;
+  --shadow: 0 16px 44px rgba(0, 0, 0, .32);
+}
+body {
+  position: relative;
+  background:
+    radial-gradient(ellipse at 12% 8%, rgba(91, 166, 211, .15), transparent 34%),
+    radial-gradient(ellipse at 88% 20%, rgba(226, 190, 119, .08), transparent 30%),
+    linear-gradient(180deg, #091625 0%, #07111d 58%, #0b1724 100%);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: -15% 0 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .25;
+  background-image:
+    radial-gradient(2px 2px at 8% 18%, #e8f7ff 55%, transparent 60%),
+    radial-gradient(2px 2px at 22% 72%, #d8efff 55%, transparent 60%),
+    radial-gradient(3px 3px at 38% 38%, #ffffff 55%, transparent 60%),
+    radial-gradient(2px 2px at 57% 12%, #d8efff 55%, transparent 60%),
+    radial-gradient(2px 2px at 73% 61%, #ffffff 55%, transparent 60%),
+    radial-gradient(3px 3px at 91% 31%, #d8efff 55%, transparent 60%);
+  background-size: 310px 330px;
+  animation: winter-snow-drift 24s linear infinite;
+}
+@keyframes winter-snow-drift {
+  from { transform: translateY(-2%); }
+  to { transform: translateY(8%); }
+}
+.app-shell { position: relative; z-index: 1; }
+.topbar { border-bottom-color: rgba(169, 225, 255, .18); }
+.brand-mark {
+  background: linear-gradient(145deg, #e8f8ff, #78c7ef 65%, #d8bd82);
+  box-shadow: 0 0 22px rgba(115, 198, 239, .18);
+}
+.panel, .upgrade-card {
+  border-color: rgba(137, 190, 222, .2);
+  background-color: rgba(16, 29, 43, .94);
+}
+.main-tabs { background: rgba(8, 19, 31, .88); border-color: rgba(137, 190, 222, .2); }
+.tab-button.active {
+  background: linear-gradient(135deg, rgba(54, 105, 139, .55), rgba(44, 59, 75, .65));
+  color: #e3f6ff;
+  box-shadow: inset 0 0 0 1px rgba(169, 225, 255, .22);
+}
+.level-pill, .secondary-button, .buy-button, .reward-claim {
+  background: linear-gradient(135deg, #1d4057, #23394c);
+  color: #d7f1ff;
+}
+.primary-button, .promo-button {
+  background: linear-gradient(135deg, #e9f7ff, #b9e4f7 62%, #e9d5a8);
+  color: #132536;
+}
+.primary-button:hover, .promo-button:hover { filter: brightness(1.06); }
+.cloud-button {
+  width: min(282px, 78vw);
+  height: min(282px, 78vw);
+  border-color: rgba(190, 231, 250, .42);
+  background:
+    radial-gradient(circle at 50% 38%, rgba(100, 162, 195, .32), transparent 52%),
+    radial-gradient(circle at 50% 42%, #1c3a50 0, #12283a 64%, #0c1b2a 100%);
+  box-shadow: 0 0 58px rgba(105, 197, 244, .17), inset 0 0 34px rgba(192, 232, 251, .1);
+}
+.cloud-button:hover { border-color: rgba(221, 244, 255, .72); }
+.cloud-art { width: 205px; height: 145px; }
+.tap-ring { border-color: rgba(211, 239, 252, .34); }
+.tap-hint { color: #e5f6ff; text-shadow: 0 1px 10px rgba(102, 190, 232, .55); }
+.energy-fill, .reward-track > div {
+  background: linear-gradient(90deg, #65bce8, #d9f3ff 72%, #e8d39f);
+}
+.daily-icon, .boost-icon, .challenge-icon, .reward-big-icon {
+  box-shadow: inset 0 0 0 1px rgba(238, 216, 166, .12);
+}
+.footer { border-top-color: rgba(169, 225, 255, .16); }
+@media (max-width: 720px) {
+  .cloud-button { width: min(260px, 76vw); height: min(260px, 76vw); }
+  .cloud-art { width: 190px; height: 135px; }
+}
+@media (max-width: 380px) {
+  .cloud-button { width: min(236px, 74vw); height: min(236px, 74vw); }
+  .cloud-art { width: 174px; height: 124px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
