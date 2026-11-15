@@ -37,6 +37,11 @@ jobs:
           with client.session_transaction() as session:
               player_id = session["player_id"]
               csrf = session["csrf_token"]
+          winter = client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": csrf})
+          assert winter.status_code == 200, winter.get_data(as_text=True)
+          assert winter.get_json()["reward"] == 10
+          duplicate = client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": csrf})
+          assert duplicate.status_code == 409
           with app.db_connection() as conn:
               conn.execute(
                   "UPDATE players SET coins = 1234, total_earned = 1234, total_taps = 5000, tap_level = 2 WHERE id = ?",
@@ -54,6 +59,7 @@ jobs:
           assert after["era"]["current"] == 2
           assert after["coins"] == 0
           assert after["total_taps"] == 5000
+          assert after["winter_event"]["tickets"] == 10
           archive = after["era"]["archive"]
           first = next(item for item in archive if item["era"] == 1)
           assert first["balance"] == 1234
