@@ -512,3 +512,24 @@ body::after {
   .main-tabs { gap: 5px; }
   .main-tabs .tab-button { min-width: 82px; font-size: 8px; }
 }
+
+
+/* Keep the document fixed horizontally; only the tab rail may be swiped sideways. */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+.app-shell {
+  width: min(1080px, 100%);
+  max-width: 100%;
+  min-width: 0;
+}
+.main-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
