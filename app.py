@@ -1,0 +1,1042 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import random
+import secrets
+import sqlite3
+import time
+import uuid
+import urllib.error
+import urllib.request
+from urllib.parse import parse_qsl
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from flask import Flask, g, jsonify, render_template, request, session
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+DB_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "game.db"))
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
+REQUIRE_TELEGRAM_AUTH = os.environ.get("REQUIRE_TELEGRAM_AUTH", "0") == "1"
+TELEGRAM_INIT_DATA_MAX_AGE = int(os.environ.get("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+
+# Telegram Stars (XTR) are the supported in-app payment currency for digital goods.
+STAR_PACKAGES = {
+    "starter": {"title": "Cloud Starter", "description": "10 000 Cloudcoin для Cloud Clicker", "stars": 25, "coins": 10_000},
+    "pro": {"title": "Cloud Pro", "description": "60 000 Cloudcoin для Cloud Clicker", "stars": 100, "coins": 60_000},
+    "vip": {"title": "Cloud VIP", "description": "200 000 Cloudcoin для Cloud Clicker", "stars": 250, "coins": 200_000},
+}
+
+app = Flask(__name__)
+app.config.update(
+    SECRET_KEY=os.environ.get("SECRET_KEY", "dev-only-change-this-secret-before-deploying"),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
+    MAX_CONTENT_LENGTH=16 * 1024,
+)
+
+# Original Cloud Clicker mechanics inspired by the broad clicker loop of
+# tap -> buy upgrade cards -> earn passively -> complete daily challenges.
+UPGRADES = {
+    "tap": {
+        "title": "Импульсный кликер",
+        "description": "+1 Cloudcoin за каждое нажатие",
+        "base_cost": 25,
+        "growth": 1.60,
+        "icon": "👆",
+        "category": "Облачные технологии",
+    },
+    "auto": {
+        "title": "Ветряная турбина",
+        "description": "+1 Cloudcoin в секунду",
+        "base_cost": 80,
+        "growth": 1.72,
+        "icon": "🌬️",
+        "category": "Энергетика",
+    },
+    "energy": {
+        "title": "Конденсатор грозы",
+        "description": "+100 к энергии и +0,5 к восстановлению в секунду",
+        "base_cost": 60,
+        "growth": 1.55,
+        "icon": "🔋",
+        "category": "Энергетика",
+    },
+    "lab": {
+        "title": "Лаборатория облаков",
+        "description": "+2 Cloudcoin в секунду за уровень",
+        "base_cost": 220,
+        "growth": 1.78,
+        "icon": "🧪",
+        "category": "Исследования",
+    },
+    "radar": {
+        "title": "Погодный радар",
+        "description": "+5 Cloudcoin в секунду за уровень",
+        "base_cost": 500,
+        "growth": 1.84,
+        "icon": "📡",
+        "category": "Исследования",
+    },
+    "network": {
+        "title": "Сеть высотных станций",
+        "description": "+2 Cloudcoin за тап за уровень",
+        "base_cost": 750,
+        "growth": 1.90,
+        "icon": "🛰️",
+        "category": "Инфраструктура",
+    },
+}
+
+LEVEL_COLUMNS = {
+    "tap": "tap_level",
+    "auto": "auto_level",
+    "energy": "energy_level",
+    "lab": "lab_level",
+    "radar": "radar_level",
+    "network": "network_level",
+}
+
+START_COINS = 0
+START_ENERGY = 100
+OFFLINE_CAP_SECONDS = 8 * 60 * 60
+DAILY_REWARD = 250
+TURBO_COST = 500
+TURBO_SECONDS = 30
+ENERGY_REFILL_COST = 250
+COMBO_REWARD = 3_000
+CIPHER_REWARD = 2_000
+
+TAP_REWARDS = [
+    {"taps": 50, "reward": 200},
+    {"taps": 100, "reward": 400},
+    {"taps": 250, "reward": 1_000},
+    {"taps": 500, "reward": 2_000},
+    {"taps": 1_000, "reward": 5_000},
+    {"taps": 2_500, "reward": 15_000},
+    {"taps": 5_000, "reward": 35_000},
+    {"taps": 10_000, "reward": 80_000},
+]
+
+DAILY_QUESTS = {
+    "tap_100": {"title": "Облачная разминка", "description": "Сделай 100 нажатий сегодня", "target": 100, "reward": 300, "icon": "☁️"},
+    "upgrade_2": {"title": "Техно-пилот", "description": "Купи 2 карточки улучшений сегодня", "target": 2, "reward": 500, "icon": "🛠️"},
+    "daily_bonus": {"title": "На связи", "description": "Забери ежедневный бонус", "target": 1, "reward": 250, "icon": "🎁"},
+}
+
+# A short rotating Morse puzzle. The page shows only the Morse sequence;
+# the answer is checked on the server.
+CIPHER_WORDS = [
+    ("CLOUD", "-.-. .-.. --- ..- -.."),
+    ("STORM", "... - --- .-. --"),
+    ("WIND", ".-- .. -. -.."),
+    ("RAIN", ".-. .- .. -."),
+    ("SKY", "... -.- -.--"),
+    ("SUN", "... ..- -."),
+    ("AIR", ".- .. .-."),
+]
+
+
+def get_db() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+@contextmanager
+def db_connection():
+    conn = get_db()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
+def init_db() -> None:
+    with db_connection() as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS players (
+                id TEXT PRIMARY KEY,
+                nickname TEXT NOT NULL DEFAULT 'Cloud',
+                coins INTEGER NOT NULL DEFAULT 0,
+                total_earned INTEGER NOT NULL DEFAULT 0,
+                total_taps INTEGER NOT NULL DEFAULT 0,
+                tap_level INTEGER NOT NULL DEFAULT 0,
+                auto_level INTEGER NOT NULL DEFAULT 0,
+                energy_level INTEGER NOT NULL DEFAULT 0,
+                lab_level INTEGER NOT NULL DEFAULT 0,
+                radar_level INTEGER NOT NULL DEFAULT 0,
+                network_level INTEGER NOT NULL DEFAULT 0,
+                energy REAL NOT NULL DEFAULT 100,
+                passive_fraction REAL NOT NULL DEFAULT 0,
+                turbo_until REAL NOT NULL DEFAULT 0,
+                last_energy_at REAL NOT NULL,
+                last_active_at REAL NOT NULL,
+                last_daily_claim TEXT,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(players)").fetchall()}
+        migrations = {
+            "passive_fraction": "REAL NOT NULL DEFAULT 0",
+            "lab_level": "INTEGER NOT NULL DEFAULT 0",
+            "radar_level": "INTEGER NOT NULL DEFAULT 0",
+            "network_level": "INTEGER NOT NULL DEFAULT 0",
+            "turbo_until": "REAL NOT NULL DEFAULT 0",
+        }
+        for column, definition in migrations.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
+        conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
+
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS tap_reward_claims (
+                player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                milestone INTEGER NOT NULL,
+                reward INTEGER NOT NULL,
+                claimed_at REAL NOT NULL,
+                PRIMARY KEY (player_id, milestone)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS daily_combo_progress (
+                player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                combo_date TEXT NOT NULL,
+                upgrade_id TEXT NOT NULL,
+                purchased_at REAL NOT NULL,
+                PRIMARY KEY (player_id, combo_date, upgrade_id)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS daily_combo_claims (
+                player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                combo_date TEXT NOT NULL,
+                claimed_at REAL NOT NULL,
+                PRIMARY KEY (player_id, combo_date)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS daily_cipher_claims (
+                player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                cipher_date TEXT NOT NULL,
+                claimed_at REAL NOT NULL,
+                PRIMARY KEY (player_id, cipher_date)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS daily_quest_progress (
+                player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                quest_date TEXT NOT NULL,
+                quest_id TEXT NOT NULL,
+                progress INTEGER NOT NULL DEFAULT 0,
+                claimed INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (player_id, quest_date, quest_id)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS telegram_accounts (
+                telegram_id TEXT PRIMARY KEY,
+                player_id TEXT NOT NULL UNIQUE REFERENCES players(id) ON DELETE CASCADE,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS star_payments (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL UNIQUE,
+                telegram_id TEXT NOT NULL,
+                player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                package_id TEXT NOT NULL,
+                stars_amount INTEGER NOT NULL,
+                coins_amount INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                telegram_charge_id TEXT UNIQUE,
+                created_at REAL NOT NULL,
+                paid_at REAL
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_star_payments_status ON star_payments(status, created_at)")
+
+
+def get_player_id() -> str:
+    telegram_player_id = getattr(g, "telegram_player_id", None)
+    if isinstance(telegram_player_id, str):
+        return telegram_player_id
+    player_id = session.get("player_id")
+    if not isinstance(player_id, str) or len(player_id) != 32:
+        player_id = uuid.uuid4().hex
+        session["player_id"] = player_id
+    return player_id
+
+
+def validate_telegram_init_data(raw_init_data: str) -> dict[str, Any]:
+    """Verify Telegram Mini App initData using the bot-token HMAC scheme."""
+    if not BOT_TOKEN:
+        raise ValueError("На сервере не задан BOT_TOKEN.")
+    if not raw_init_data or len(raw_init_data) > 16_384:
+        raise ValueError("Telegram initData отсутствует или имеет неверный размер.")
+    fields = dict(parse_qsl(raw_init_data, keep_blank_values=True, strict_parsing=False))
+    received_hash = fields.pop("hash", "")
+    if not received_hash:
+        raise ValueError("В initData отсутствует hash.")
+    check_string = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode("utf-8"), hashlib.sha256).digest()
+    expected_hash = hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not secrets.compare_digest(expected_hash, received_hash):
+        raise ValueError("Подпись Telegram initData не прошла проверку.")
+    try:
+        auth_date = int(fields.get("auth_date", "0"))
+        user = json.loads(fields.get("user", "{}"))
+        telegram_id = int(user["id"])
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+        raise ValueError("В initData нет корректного пользователя Telegram.")
+    now = int(time.time())
+    if auth_date <= 0 or auth_date > now + 60 or now - auth_date > TELEGRAM_INIT_DATA_MAX_AGE:
+        raise ValueError("Данные авторизации Telegram устарели. Закрой и снова открой Mini App.")
+    return {
+        "id": telegram_id,
+        "username": str(user.get("username") or "")[:64],
+        "first_name": str(user.get("first_name") or "")[:128],
+        "last_name": str(user.get("last_name") or "")[:128],
+    }
+
+
+def bind_telegram_user(user: dict[str, Any], guest_player_id: str | None = None) -> str:
+    """Bind a verified Telegram ID to a persistent player row (preserving guest progress when possible)."""
+    telegram_id = str(int(user["id"]))
+    now = time.time()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT player_id FROM telegram_accounts WHERE telegram_id = ?", (telegram_id,)).fetchone()
+        if existing:
+            player_id = str(existing["player_id"])
+            ensure_player(conn, player_id)
+            conn.execute(
+                "UPDATE telegram_accounts SET username = ?, first_name = ?, last_name = ?, last_seen_at = ? WHERE telegram_id = ?",
+                (user.get("username") or None, user.get("first_name") or None, user.get("last_name") or None, now, telegram_id),
+            )
+        else:
+            candidate = None
+            if isinstance(guest_player_id, str) and len(guest_player_id) == 32:
+                player_exists = conn.execute("SELECT id FROM players WHERE id = ?", (guest_player_id,)).fetchone()
+                already_linked = conn.execute("SELECT 1 FROM telegram_accounts WHERE player_id = ?", (guest_player_id,)).fetchone()
+                if player_exists and not already_linked:
+                    candidate = guest_player_id
+            player_id = candidate or uuid.uuid4().hex
+            ensure_player(conn, player_id)
+            nickname = user.get("username") or user.get("first_name") or "Cloud"
+            conn.execute("UPDATE players SET nickname = ? WHERE id = ? AND nickname = 'Cloud'", (str(nickname)[:18], player_id))
+            conn.execute(
+                "INSERT INTO telegram_accounts (telegram_id, player_id, username, first_name, last_name, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (telegram_id, player_id, user.get("username") or None, user.get("first_name") or None, user.get("last_name") or None, now, now),
+            )
+    return player_id
+
+
+def telegram_api(method: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN не настроен на сервере.")
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        raise RuntimeError(f"Telegram Bot API ответил HTTP {exc.code}: {detail}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Не удалось связаться с Telegram Bot API: {exc}") from exc
+    if not result.get("ok"):
+        raise RuntimeError(str(result.get("description", "Неизвестная ошибка Telegram Bot API")))
+    return result
+
+
+def current_utc_date() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def ensure_player(conn: sqlite3.Connection, player_id: str) -> sqlite3.Row:
+    now = time.time()
+    conn.execute(
+        """INSERT OR IGNORE INTO players
+            (id, nickname, coins, total_earned, total_taps, tap_level, auto_level,
+             energy_level, lab_level, radar_level, network_level, energy,
+             passive_fraction, turbo_until, last_energy_at, last_active_at, created_at)
+            VALUES (?, 'Cloud', ?, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0, ?, ?, ?)""",
+        (player_id, START_COINS, START_ENERGY, now, now, now),
+    )
+    row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+    assert row is not None
+    return row
+
+
+def ensure_daily_quests(conn: sqlite3.Connection, player_id: str, day: str | None = None) -> None:
+    day = day or current_utc_date()
+    conn.executemany(
+        "INSERT OR IGNORE INTO daily_quest_progress (player_id, quest_date, quest_id, progress, claimed) VALUES (?, ?, ?, 0, 0)",
+        [(player_id, day, quest_id) for quest_id in DAILY_QUESTS],
+    )
+
+
+def bump_quest(conn: sqlite3.Connection, player_id: str, quest_id: str, amount: int, day: str | None = None) -> None:
+    day = day or current_utc_date()
+    ensure_daily_quests(conn, player_id, day)
+    target = DAILY_QUESTS[quest_id]["target"]
+    conn.execute(
+        "UPDATE daily_quest_progress SET progress = MIN(?, progress + ?) WHERE player_id = ? AND quest_date = ? AND quest_id = ?",
+        (target, max(0, int(amount)), player_id, day, quest_id),
+    )
+
+
+def combo_for_day(day: str | None = None) -> list[str]:
+    day = day or current_utc_date()
+    seed = int.from_bytes(hashlib.sha256(("cloud-combo:" + day).encode()).digest()[:8], "big")
+    return random.Random(seed).sample(list(UPGRADES.keys()), 3)
+
+
+def cipher_for_day(day: str | None = None) -> tuple[str, str]:
+    day = day or current_utc_date()
+    seed = int.from_bytes(hashlib.sha256(("cloud-cipher:" + day).encode()).digest()[:8], "big")
+    return CIPHER_WORDS[seed % len(CIPHER_WORDS)]
+
+
+def max_energy(row: sqlite3.Row) -> int:
+    return START_ENERGY + int(row["energy_level"]) * 100
+
+
+def energy_regen(row: sqlite3.Row) -> float:
+    return 2.0 + int(row["energy_level"]) * 0.5
+
+
+def tap_power(row: sqlite3.Row) -> int:
+    return 1 + int(row["tap_level"]) + int(row["network_level"]) * 2
+
+
+def passive_income(row: sqlite3.Row) -> int:
+    return int(row["auto_level"]) + int(row["lab_level"]) * 2 + int(row["radar_level"]) * 5
+
+
+def upgrade_cost(upgrade_id: str, level: int) -> int:
+    item = UPGRADES[upgrade_id]
+    return int(round(item["base_cost"] * (item["growth"] ** level)))
+
+
+def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None = None) -> sqlite3.Row:
+    """Apply passive income and energy regeneration before each game action."""
+    now = now if now is not None else time.time()
+    energy_elapsed = max(0.0, min(now - float(row["last_energy_at"]), 24 * 60 * 60))
+    energy = min(max_energy(row), float(row["energy"]) + energy_elapsed * energy_regen(row))
+    active_elapsed = max(0.0, min(now - float(row["last_active_at"]), OFFLINE_CAP_SECONDS))
+    passive_total = active_elapsed * passive_income(row) + float(row["passive_fraction"])
+    passive_added = int(passive_total)
+    passive_fraction = passive_total - passive_added
+    conn.execute(
+        """UPDATE players
+           SET energy = ?, passive_fraction = ?, last_energy_at = ?, last_active_at = ?,
+               coins = coins + ?, total_earned = total_earned + ?
+           WHERE id = ?""",
+        (energy, passive_fraction, now, now, passive_added, passive_added, row["id"]),
+    )
+    return conn.execute("SELECT * FROM players WHERE id = ?", (row["id"],)).fetchone()
+
+
+def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
+    upgrades = []
+    for upgrade_id, data in UPGRADES.items():
+        level = levels[upgrade_id]
+        upgrades.append({
+            "id": upgrade_id,
+            "title": data["title"],
+            "description": data["description"],
+            "icon": data["icon"],
+            "category": data["category"],
+            "level": level,
+            "cost": upgrade_cost(upgrade_id, level),
+        })
+
+    claimed_tap = set()
+    combo_progress: set[str] = set()
+    combo_claimed = False
+    cipher_claimed = False
+    quests = []
+    if conn is not None:
+        claimed_tap = {
+            int(item["milestone"])
+            for item in conn.execute("SELECT milestone FROM tap_reward_claims WHERE player_id = ?", (row["id"],)).fetchall()
+        }
+        day = current_utc_date()
+        ensure_daily_quests(conn, row["id"], day)
+        combo_progress = {
+            item["upgrade_id"]
+            for item in conn.execute("SELECT upgrade_id FROM daily_combo_progress WHERE player_id = ? AND combo_date = ?", (row["id"], day)).fetchall()
+        }
+        combo_claimed = conn.execute("SELECT 1 FROM daily_combo_claims WHERE player_id = ? AND combo_date = ?", (row["id"], day)).fetchone() is not None
+        cipher_claimed = conn.execute("SELECT 1 FROM daily_cipher_claims WHERE player_id = ? AND cipher_date = ?", (row["id"], day)).fetchone() is not None
+        quest_rows = conn.execute("SELECT quest_id, progress, claimed FROM daily_quest_progress WHERE player_id = ? AND quest_date = ?", (row["id"], day)).fetchall()
+        quest_map = {item["quest_id"]: item for item in quest_rows}
+        for quest_id, item in DAILY_QUESTS.items():
+            saved = quest_map.get(quest_id)
+            progress = int(saved["progress"]) if saved else 0
+            quests.append({
+                "id": quest_id,
+                **item,
+                "progress": progress,
+                "claimed": bool(saved["claimed"]) if saved else False,
+                "unlocked": progress >= item["target"],
+                "percent": min(100, int(progress * 100 / item["target"])),
+            })
+
+    total_taps = int(row["total_taps"])
+    tap_rewards = [{
+        "taps": item["taps"],
+        "reward": item["reward"],
+        "claimed": item["taps"] in claimed_tap,
+        "unlocked": total_taps >= item["taps"],
+        "progress": min(100, int(total_taps * 100 / item["taps"])),
+    } for item in TAP_REWARDS]
+
+    day = current_utc_date()
+    combo_ids = combo_for_day(day)
+    combo_cards = [{
+        "id": key,
+        "title": UPGRADES[key]["title"],
+        "icon": UPGRADES[key]["icon"],
+        "done": key in combo_progress,
+    } for key in combo_ids]
+    cipher_word, cipher_morse = cipher_for_day(day)
+    now = time.time()
+    turbo_until = float(row["turbo_until"])
+    turbo_remaining = max(0, int(turbo_until - now))
+
+    return {
+        "nickname": row["nickname"],
+        "coins": int(row["coins"]),
+        "total_earned": int(row["total_earned"]),
+        "total_taps": total_taps,
+        "tap_power": tap_power(row),
+        "passive_per_sec": passive_income(row),
+        "energy": round(float(row["energy"]), 1),
+        "max_energy": max_energy(row),
+        "energy_regen": energy_regen(row),
+        "daily_available": row["last_daily_claim"] != day,
+        "daily_reward": DAILY_REWARD,
+        "upgrades": upgrades,
+        "total_upgrade_levels": sum(levels.values()),
+        "tap_rewards": tap_rewards,
+        "daily_combo": {"cards": combo_cards, "reward": COMBO_REWARD, "claimed": combo_claimed,
+                        "completed": all(card["done"] for card in combo_cards), "date": day},
+        "daily_cipher": {"morse": cipher_morse, "reward": CIPHER_REWARD, "claimed": cipher_claimed, "date": day},
+        "daily_quests": quests,
+        "boosts": {"turbo_active": turbo_remaining > 0, "turbo_remaining": turbo_remaining,
+                   "turbo_cost": TURBO_COST, "turbo_seconds": TURBO_SECONDS,
+                   "energy_cost": ENERGY_REFILL_COST, "energy_full": float(row["energy"]) >= max_energy(row) - 0.5},
+    }
+
+
+def api_error(message: str, status: int = 400):
+    return jsonify({"ok": False, "error": message}), status
+
+
+def check_csrf() -> bool:
+    sent = request.headers.get("X-CSRF-Token", "")
+    expected = session.get("csrf_token", "")
+    return bool(sent and expected and secrets.compare_digest(sent, expected))
+
+
+@app.before_request
+def prepare_session():
+    session.setdefault("csrf_token", secrets.token_urlsafe(24))
+    guest_player_id = get_player_id()
+    raw_init_data = request.headers.get("X-Telegram-Init-Data", "")
+    if raw_init_data:
+        try:
+            telegram_user = validate_telegram_init_data(raw_init_data)
+            player_id = bind_telegram_user(telegram_user, guest_player_id)
+            g.telegram_user = telegram_user
+            g.telegram_player_id = player_id
+            session["player_id"] = player_id
+        except ValueError as exc:
+            if request.path.startswith("/api/"):
+                return api_error(str(exc), 401)
+            g.telegram_auth_error = str(exc)
+    elif REQUIRE_TELEGRAM_AUTH and request.path.startswith("/api/"):
+        return api_error("Открой Cloud Clicker через Telegram Mini App.", 401)
+
+
+@app.get("/")
+def index():
+    return render_template("index.html", csrf_token=session["csrf_token"])
+
+
+@app.get("/api/state")
+def state():
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/click")
+def click():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    try:
+        requested_count = int(payload.get("count", 1))
+    except (TypeError, ValueError):
+        requested_count = 1
+    requested_count = max(1, min(requested_count, 10))
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        accepted_count = min(requested_count, int(float(row["energy"])))
+        if accepted_count < 1:
+            return jsonify({"ok": False, "error": "Энергия закончилась", "state": make_state(row, conn)}), 409
+        multiplier = 2 if float(row["turbo_until"]) > time.time() else 1
+        reward = tap_power(row) * accepted_count * multiplier
+        conn.execute(
+            """UPDATE players SET coins = coins + ?, total_earned = total_earned + ?,
+               total_taps = total_taps + ?, energy = energy - ? WHERE id = ?""",
+            (reward, reward, accepted_count, accepted_count, player_id),
+        )
+        bump_quest(conn, player_id, "tap_100", accepted_count)
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "earned": reward, "accepted_count": accepted_count, "state": result})
+
+
+@app.post("/api/upgrade")
+def buy_upgrade():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    upgrade_id = payload.get("id")
+    if upgrade_id not in UPGRADES:
+        return api_error("Такого улучшения нет.")
+    player_id = get_player_id()
+    day = current_utc_date()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        level_column = LEVEL_COLUMNS[upgrade_id]
+        level = int(row[level_column])
+        cost = upgrade_cost(upgrade_id, level)
+        if int(row["coins"]) < cost:
+            return jsonify({"ok": False, "error": "Пока не хватает Cloudcoin", "state": make_state(row, conn)}), 409
+        conn.execute(f"UPDATE players SET coins = coins - ?, {level_column} = {level_column} + 1 WHERE id = ?", (cost, player_id))
+        if upgrade_id in combo_for_day(day):
+            conn.execute("INSERT OR IGNORE INTO daily_combo_progress (player_id, combo_date, upgrade_id, purchased_at) VALUES (?, ?, ?, ?)", (player_id, day, upgrade_id, time.time()))
+        bump_quest(conn, player_id, "upgrade_2", 1, day)
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/daily")
+def claim_daily():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    today = current_utc_date()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        if row["last_daily_claim"] == today:
+            return jsonify({"ok": False, "error": "Сегодня награда уже получена", "state": make_state(row, conn)}), 409
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ?, last_daily_claim = ? WHERE id = ?", (DAILY_REWARD, DAILY_REWARD, today, player_id))
+        bump_quest(conn, player_id, "daily_bonus", 1, today)
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/tap-reward/claim")
+def claim_tap_reward():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    try:
+        milestone = int(payload.get("milestone", 0))
+    except (TypeError, ValueError):
+        return api_error("Неверная награда.")
+    reward_item = next((item for item in TAP_REWARDS if item["taps"] == milestone), None)
+    if reward_item is None:
+        return api_error("Такой награды нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        if int(row["total_taps"]) < milestone:
+            return jsonify({"ok": False, "error": "Сначала набери нужное количество тапов.", "state": make_state(row, conn)}), 409
+        already_claimed = conn.execute("SELECT 1 FROM tap_reward_claims WHERE player_id = ? AND milestone = ?", (player_id, milestone)).fetchone()
+        if already_claimed:
+            return jsonify({"ok": False, "error": "Эта награда уже получена.", "state": make_state(row, conn)}), 409
+        reward = int(reward_item["reward"])
+        conn.execute("INSERT INTO tap_reward_claims (player_id, milestone, reward, claimed_at) VALUES (?, ?, ?, ?)", (player_id, milestone, reward, time.time()))
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (reward, reward, player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/combo/claim")
+def claim_combo():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    day = current_utc_date()
+    selected = combo_for_day(day)
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        bought = {r["upgrade_id"] for r in conn.execute("SELECT upgrade_id FROM daily_combo_progress WHERE player_id = ? AND combo_date = ?", (player_id, day)).fetchall()}
+        if not set(selected).issubset(bought):
+            return jsonify({"ok": False, "error": "Сначала улучши все три карточки дня.", "state": make_state(row, conn)}), 409
+        already = conn.execute("SELECT 1 FROM daily_combo_claims WHERE player_id = ? AND combo_date = ?", (player_id, day)).fetchone()
+        if already:
+            return jsonify({"ok": False, "error": "Комбо уже получено сегодня.", "state": make_state(row, conn)}), 409
+        conn.execute("INSERT INTO daily_combo_claims (player_id, combo_date, claimed_at) VALUES (?, ?, ?)", (player_id, day, time.time()))
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (COMBO_REWARD, COMBO_REWARD, player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "reward": COMBO_REWARD, "state": result})
+
+
+@app.post("/api/cipher/claim")
+def claim_cipher():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    answer = "".join(ch for ch in str(payload.get("answer", "")).upper() if ch.isalpha())[:12]
+    word, _morse = cipher_for_day()
+    if answer != word:
+        return api_error("Код неверный. Попробуй ещё раз.")
+    player_id = get_player_id()
+    day = current_utc_date()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        already = conn.execute("SELECT 1 FROM daily_cipher_claims WHERE player_id = ? AND cipher_date = ?", (player_id, day)).fetchone()
+        if already:
+            return jsonify({"ok": False, "error": "Секретный код уже активирован сегодня.", "state": make_state(row, conn)}), 409
+        conn.execute("INSERT INTO daily_cipher_claims (player_id, cipher_date, claimed_at) VALUES (?, ?, ?)", (player_id, day, time.time()))
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (CIPHER_REWARD, CIPHER_REWARD, player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "reward": CIPHER_REWARD, "state": result})
+
+
+@app.post("/api/quest/claim")
+def claim_quest():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    quest_id = payload.get("id")
+    if quest_id not in DAILY_QUESTS:
+        return api_error("Такого задания нет.")
+    player_id = get_player_id()
+    day = current_utc_date()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        ensure_daily_quests(conn, player_id, day)
+        progress = conn.execute("SELECT progress, claimed FROM daily_quest_progress WHERE player_id = ? AND quest_date = ? AND quest_id = ?", (player_id, day, quest_id)).fetchone()
+        quest = DAILY_QUESTS[quest_id]
+        if progress["claimed"]:
+            return jsonify({"ok": False, "error": "Награда за это задание уже получена.", "state": make_state(row, conn)}), 409
+        if int(progress["progress"]) < quest["target"]:
+            return jsonify({"ok": False, "error": "Задание ещё не выполнено.", "state": make_state(row, conn)}), 409
+        reward = int(quest["reward"])
+        conn.execute("UPDATE daily_quest_progress SET claimed = 1 WHERE player_id = ? AND quest_date = ? AND quest_id = ?", (player_id, day, quest_id))
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (reward, reward, player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/boost/turbo")
+def activate_turbo():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    now = time.time()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row, now)
+        if int(row["coins"]) < TURBO_COST:
+            return jsonify({"ok": False, "error": "Не хватает Cloudcoin на турбо-буст.", "state": make_state(row, conn)}), 409
+        new_until = min(max(float(row["turbo_until"]), now) + TURBO_SECONDS, now + 180)
+        conn.execute("UPDATE players SET coins = coins - ?, turbo_until = ? WHERE id = ?", (TURBO_COST, new_until, player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/boost/energy")
+def activate_energy_boost():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        if float(row["energy"]) >= max_energy(row) - 0.5:
+            return jsonify({"ok": False, "error": "Энергия уже полная.", "state": make_state(row, conn)}), 409
+        if int(row["coins"]) < ENERGY_REFILL_COST:
+            return jsonify({"ok": False, "error": "Не хватает Cloudcoin на восстановление энергии.", "state": make_state(row, conn)}), 409
+        conn.execute("UPDATE players SET coins = coins - ?, energy = ? WHERE id = ?", (ENERGY_REFILL_COST, max_energy(row), player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/nickname")
+def set_nickname():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    nickname = " ".join(str(payload.get("nickname", "")).strip().split())[:18]
+    if len(nickname) < 2:
+        return api_error("Имя должно содержать хотя бы 2 символа.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        ensure_player(conn, player_id)
+        conn.execute("UPDATE players SET nickname = ? WHERE id = ?", (nickname, player_id))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "state": result})
+
+
+@app.get("/api/leaderboard")
+def leaderboard():
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        ensure_player(conn, player_id)
+        rows = conn.execute("SELECT id, nickname, total_earned, total_taps FROM players ORDER BY total_earned DESC, total_taps DESC LIMIT 10").fetchall()
+        my_rank = conn.execute("SELECT COUNT(*) + 1 AS rank FROM players WHERE total_earned > (SELECT total_earned FROM players WHERE id = ?)", (player_id,)).fetchone()["rank"]
+    return jsonify({"ok": True,
+        "leaders": [{"rank": i + 1, "nickname": row["nickname"], "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]), "you": row["id"] == player_id} for i, row in enumerate(rows)],
+        "my_rank": int(my_rank)})
+
+
+@app.get("/api/shop/packages")
+def shop_packages():
+    return jsonify({
+        "ok": True,
+        "currency": "XTR",
+        "payments_enabled": bool(BOT_TOKEN),
+        "packages": [
+            {"id": package_id, **package}
+            for package_id, package in STAR_PACKAGES.items()
+        ],
+    })
+
+
+@app.post("/api/shop/create-invoice")
+def create_star_invoice():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    telegram_user = getattr(g, "telegram_user", None)
+    if not telegram_user:
+        return api_error("Покупки доступны после запуска игры через Telegram.", 401)
+    if not BOT_TOKEN:
+        return api_error("Магазин пока не настроен: администратор должен добавить BOT_TOKEN.", 503)
+    payload_data = request.get_json(silent=True) or {}
+    package_id = str(payload_data.get("package_id", ""))
+    package = STAR_PACKAGES.get(package_id)
+    if not package:
+        return api_error("Такого набора нет.")
+
+    player_id = get_player_id()
+    invoice_payload = "cloudclicker_" + secrets.token_urlsafe(24)
+    payment_id = uuid.uuid4().hex
+    created_at = time.time()
+    with db_connection() as conn:
+        conn.execute(
+            "INSERT INTO star_payments (id, payload, telegram_id, player_id, package_id, stars_amount, coins_amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'creating', ?)",
+            (payment_id, invoice_payload, str(telegram_user["id"]), player_id, package_id, int(package["stars"]), int(package["coins"]), created_at),
+        )
+    try:
+        result = telegram_api("createInvoiceLink", {
+            "title": package["title"],
+            "description": package["description"],
+            "payload": invoice_payload,
+            "currency": "XTR",
+            "prices": [{"label": f"{package['coins']:,} Cloudcoin", "amount": int(package["stars"])}],
+        })
+        invoice_url = result.get("result")
+        if not isinstance(invoice_url, str) or not invoice_url.startswith("https://"):
+            raise RuntimeError("Telegram не вернул корректную ссылку на оплату.")
+        with db_connection() as conn:
+            conn.execute("UPDATE star_payments SET status = 'pending' WHERE id = ? AND status = 'creating'", (payment_id,))
+        return jsonify({"ok": True, "invoice_url": invoice_url, "package": package_id})
+    except Exception as exc:
+        with db_connection() as conn:
+            conn.execute("UPDATE star_payments SET status = 'failed' WHERE id = ?", (payment_id,))
+        app.logger.exception("Could not create Telegram Stars invoice")
+        return api_error(f"Не удалось создать счёт Telegram: {exc}", 502)
+
+
+def process_pre_checkout(query: dict[str, Any]) -> None:
+    query_id = str(query.get("id", ""))
+    from_user = query.get("from") or {}
+    invoice_payload = str(query.get("invoice_payload", ""))
+    currency = str(query.get("currency", ""))
+    total_amount = int(query.get("total_amount", 0))
+    with db_connection() as conn:
+        payment = conn.execute("SELECT * FROM star_payments WHERE payload = ?", (invoice_payload,)).fetchone()
+        valid = bool(
+            payment
+            and payment["status"] == "pending"
+            and payment["telegram_id"] == str(from_user.get("id", ""))
+            and currency == "XTR"
+            and total_amount == int(payment["stars_amount"])
+        )
+    answer = {"pre_checkout_query_id": query_id, "ok": valid}
+    if not valid:
+        answer["error_message"] = "Счёт не найден, устарел или не соответствует покупке."
+    telegram_api("answerPreCheckoutQuery", answer)
+
+
+def process_successful_payment(message: dict[str, Any]) -> None:
+    from_user = message.get("from") or {}
+    payment_info = message.get("successful_payment") or {}
+    invoice_payload = str(payment_info.get("invoice_payload", ""))
+    telegram_id = str(from_user.get("id", ""))
+    currency = str(payment_info.get("currency", ""))
+    total_amount = int(payment_info.get("total_amount", 0))
+    charge_id = str(payment_info.get("telegram_payment_charge_id", ""))
+    if not invoice_payload or not charge_id or currency != "XTR":
+        app.logger.warning("Ignored malformed Telegram successful_payment update")
+        return
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        payment = conn.execute("SELECT * FROM star_payments WHERE payload = ?", (invoice_payload,)).fetchone()
+        if not payment:
+            app.logger.error("Successful payment has unknown invoice payload")
+            return
+        if payment["status"] == "paid":
+            return  # Idempotent webhook retry; do not credit twice.
+        if payment["status"] != "pending" or payment["telegram_id"] != telegram_id or total_amount != int(payment["stars_amount"]):
+            app.logger.error("Successful payment does not match pending invoice")
+            return
+        conn.execute(
+            "UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?",
+            (int(payment["coins_amount"]), int(payment["coins_amount"]), payment["player_id"]),
+        )
+        conn.execute(
+            "UPDATE star_payments SET status = 'paid', telegram_charge_id = ?, paid_at = ? WHERE id = ?",
+            (charge_id, time.time(), payment["id"]),
+        )
+
+
+def process_start_message(message: dict[str, Any]) -> None:
+    if not PUBLIC_BASE_URL.startswith("https://"):
+        app.logger.warning("PUBLIC_BASE_URL is not configured; skipping /start Mini App button")
+        return
+    chat = message.get("chat") or {}
+    if chat.get("type") != "private" or not chat.get("id"):
+        return
+    telegram_api("sendMessage", {
+        "chat_id": chat["id"],
+        "text": "☁ Добро пожаловать в Cloud Clicker! Нажимай на облако, собирай Cloudcoin и открывай улучшения.\n\nКоманды: /terms — условия покупок, /support — поддержка.",
+        "reply_markup": {
+            "inline_keyboard": [[{
+                "text": "☁ Открыть Cloud Clicker",
+                "web_app": {"url": PUBLIC_BASE_URL},
+            }]]
+        },
+    })
+
+
+def process_bot_command(message: dict[str, Any]) -> None:
+    chat = message.get("chat") or {}
+    if chat.get("type") != "private" or not chat.get("id"):
+        return
+    command = str(message.get("text", "")).strip().split(" ", 1)[0].split("@", 1)[0]
+    if command == "/terms":
+        text = (PUBLIC_BASE_URL + "/terms") if PUBLIC_BASE_URL.startswith("https://") else "Условия покупки доступны на сайте Cloud Clicker."
+        telegram_api("sendMessage", {"chat_id": chat["id"], "text": "Условия покупки цифровых товаров Cloud Clicker: " + text})
+    elif command == "/support":
+        telegram_api("sendMessage", {"chat_id": chat["id"], "text": "По вопросам платежей и начисления Cloudcoin напиши создателю: @deIaywork. Сохрани квитанцию Telegram Stars и укажи дату и пакет покупки."})
+
+
+@app.get("/terms")
+def terms_page():
+    return """<!doctype html><html lang='ru'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Условия Cloud Clicker</title><body style='font:16px/1.6 system-ui;max-width:760px;margin:40px auto;padding:0 18px;background:#080b10;color:#e6f2ff'><h1>Условия покупок Cloud Clicker</h1><p>Покупки в Telegram Mini App проводятся в Telegram Stars (XTR). Счёт и оплата обрабатываются Telegram.</p><p>Cloudcoin — внутриигровая цифровая валюта Cloud Clicker. Она предназначена только для использования в игре, не является криптовалютой, электронными деньгами или денежным балансом, не имеет гарантированной денежной стоимости и не подлежит выводу или обмену на реальные деньги.</p><p>Cloudcoin начисляется на игровой аккаунт после получения сервером подтверждения успешного платежа Telegram. Не закрывай приложение до завершения платёжного окна. Если покупка оплачена, но Cloudcoin не появились, обратись в поддержку и приложи информацию из квитанции.</p><p>Покупка связана с Telegram ID аккаунта, с которого была открыта Mini App. Не передавай другим людям доступ к аккаунту.</p><p>Поддержка по покупкам: <a style='color:#9edaff' href='https://t.me/deIaywork'>@deIaywork</a>. Условия могут обновляться; перед покупкой проверь актуальную версию этой страницы.</p><p><a style='color:#9edaff' href='/'>Вернуться в игру</a></p></body></html>"""
+
+
+@app.post("/telegram/webhook")
+def telegram_webhook():
+    if not TELEGRAM_WEBHOOK_SECRET:
+        return jsonify({"ok": False, "error": "Webhook secret is not configured"}), 503
+    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secrets.compare_digest(supplied, TELEGRAM_WEBHOOK_SECRET):
+        return jsonify({"ok": False}), 403
+    update = request.get_json(silent=True) or {}
+    try:
+        if "pre_checkout_query" in update:
+            process_pre_checkout(update["pre_checkout_query"])
+        elif "message" in update:
+            message = update["message"] or {}
+            if "successful_payment" in message:
+                process_successful_payment(message)
+            else:
+                command = str(message.get("text", "")).strip().split(" ", 1)[0].split("@", 1)[0]
+                if command == "/start":
+                    process_start_message(message)
+                elif command in {"/terms", "/support"}:
+                    process_bot_command(message)
+    except Exception:
+        app.logger.exception("Telegram webhook processing failed")
+        return jsonify({"ok": False}), 500
+    return jsonify({"ok": True})
+
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
+init_db()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=False)

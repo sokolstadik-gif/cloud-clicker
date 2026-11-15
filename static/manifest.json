@@ -1,0 +1,10 @@
+{
+  "name": "Cloud Clicker",
+  "short_name": "Cloud Clicker",
+  "description": "Нажимай на облако, собирай Cloudcoin и открывай награды",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080b10",
+  "theme_color": "#080b10",
+  "lang": "ru"
+}
