@@ -1056,12 +1056,21 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
     gifts = gift_state(conn, row["id"], int(row["active_era"])) if conn is not None else None
     profile = profile_state(conn, row) if conn is not None else None
     upgrades = []
+    era_currency = ERA_NAMES[int(row["active_era"])][1]
+    power_multiplier = era_power_multiplier(int(row["active_era"]))
+    scaled_descriptions = {
+        "tap": f"+{1 * power_multiplier} {era_currency} за каждое нажатие",
+        "auto": f"+{1 * power_multiplier} {era_currency} в секунду",
+        "lab": f"+{2 * power_multiplier} {era_currency} в секунду за уровень",
+        "radar": f"+{5 * power_multiplier} {era_currency} в секунду за уровень",
+        "network": f"+{2 * power_multiplier} {era_currency} за тап за уровень",
+    }
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
         upgrades.append({
             "id": upgrade_id,
             "title": data["title"],
-            "description": data["description"],
+            "description": scaled_descriptions.get(upgrade_id, data["description"].replace("Cloudcoin", era_currency)),
             "icon": data["icon"],
             "category": data["category"],
             "level": level,
