@@ -1,0 +1,43 @@
+name: Python checks
+
+on:
+  push:
+    branches: [main, postgres-migration]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax-and-db-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m py_compile app.py
+      - name: Check PostgreSQL SQL adapter
+        run: |
+          python - <<'PY'
+          from app import PostgresCompatConnection
+
+          assert PostgresCompatConnection.translate("PRAGMA journal_mode = WAL") == "SELECT 1"
+          info = PostgresCompatConnection.translate("PRAGMA table_info(players)")
+          assert info[0].startswith("SELECT ordinal_position - 1 AS cid")
+          assert info[1] == ("players",)
+          assert PostgresCompatConnection.translate("BEGIN IMMEDIATE") == (
+              "SELECT id FROM app_write_lock WHERE id = 1 FOR UPDATE"
+          )
+          assert PostgresCompatConnection.translate(
+              "INSERT OR IGNORE INTO players (id) VALUES (?)"
+          ) == "INSERT INTO players (id) VALUES (%s) ON CONFLICT DO NOTHING"
+          assert PostgresCompatConnection.translate(
+              "UPDATE daily_quest_progress SET progress = MIN(?, progress + ?) WHERE player_id = ?"
+          ) == (
+              "UPDATE daily_quest_progress SET progress = LEAST(%s, progress + %s) "
+              "WHERE player_id = %s"
+          )
+          print("PostgreSQL SQL adapter checks passed")
+          PY
