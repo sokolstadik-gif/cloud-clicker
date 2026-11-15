@@ -37,6 +37,7 @@ REQUIRE_TELEGRAM_AUTH = os.environ.get("REQUIRE_TELEGRAM_AUTH", "0") == "1"
 TELEGRAM_INIT_DATA_MAX_AGE = int(os.environ.get("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
+ADMIN_TELEGRAM_IDS = {item.strip() for item in os.environ.get("ADMIN_TELEGRAM_IDS", "").split(",") if item.strip()}
 
 # Telegram Stars (XTR) are the supported in-app payment currency for digital goods.
 STAR_PACKAGES = {
@@ -1132,6 +1133,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
     turbo_remaining = max(0, int(turbo_until - now))
 
     return {
+        "is_admin": bool(getattr(g, "telegram_user", None) and str(g.telegram_user.get("id")) in ADMIN_TELEGRAM_IDS),
         "nickname": row["nickname"],
         "era": era_overview,
         "winter_event": winter_state,
@@ -1214,6 +1216,89 @@ def state():
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
+
+
+
+def is_admin_request() -> bool:
+    user = getattr(g, "telegram_user", None)
+    return bool(user and str(user.get("id")) in ADMIN_TELEGRAM_IDS)
+
+
+@app.post("/api/admin/max")
+def admin_max():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    if not is_admin_request():
+        return api_error("Эта команда доступна только администратору.", 403)
+
+    player_id = get_player_id()
+    now = time.time()
+    max_balance = 10**12
+    max_level = 100
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        ensure_player(conn, player_id)
+        for era in range(1, 5):
+            levels = {key: max_level for key in LEVEL_COLUMNS}
+            balance = max_balance if era == 4 else 0
+            earned = max_balance if era >= 2 else 0
+            taps = 1_000_000 if era == 1 else 0
+            purchases = 50 if era == 2 else (sum(levels.values()) if era == 4 else 0)
+            conn.execute(
+                """INSERT INTO player_era_progress
+                   (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                    last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (player_id, era) DO UPDATE SET
+                     balance = excluded.balance, earned = excluded.earned, taps = excluded.taps,
+                     upgrade_purchases = excluded.upgrade_purchases, levels_json = excluded.levels_json,
+                     last_balance = excluded.last_balance, last_taps = excluded.last_taps,
+                     last_upgrade_levels = excluded.last_upgrade_levels, updated_at = excluded.updated_at""",
+                (player_id, era, balance, earned, taps, purchases, json.dumps(levels),
+                 balance, taps, sum(levels.values()), now, now),
+            )
+        conn.execute(
+            """UPDATE players SET coins = ?, total_earned = ?, total_taps = ?,
+               tap_level = ?, auto_level = ?, energy_level = ?, lab_level = ?,
+               radar_level = ?, network_level = ?, energy = ?, passive_fraction = 0,
+               turbo_until = ?, active_era = 4, last_energy_at = ?, last_active_at = ?
+               WHERE id = ?""",
+            (max_balance, max_balance, 1_000_000, max_level, max_level, max_level,
+             max_level, max_level, max_level, START_ENERGY + max_level * 100,
+             now + 10 * 365 * 24 * 60 * 60, now, now, player_id),
+        )
+        conn.execute("INSERT OR IGNORE INTO winter_event_players (player_id, tickets) VALUES (?, 0)", (player_id,))
+        conn.execute("UPDATE winter_event_players SET tickets = 1000000 WHERE player_id = ?", (player_id,))
+        for code in WINTER_SHOP:
+            conn.execute(
+                "INSERT OR IGNORE INTO winter_cosmetics (player_id, item_code, purchased_at, tickets_paid) VALUES (?, ?, ?, 0)",
+                (player_id, code, now),
+            )
+        ensure_public_profile(conn, player_id)
+        conn.execute("UPDATE player_profiles SET avatar = '👑', frame = 'divine', equipped_cosmetic = 'legendary_new_year_cloud', updated_at = ? WHERE player_id = ?",
+                     (now, player_id))
+        for item in ACHIEVEMENTS:
+            conn.execute(
+                "INSERT OR IGNORE INTO player_achievement_claims (player_id, achievement_id, reward, claimed_at) VALUES (?, ?, ?, ?)",
+                (player_id, item["id"], item["reward"], now),
+            )
+        for item in TAP_REWARDS:
+            conn.execute(
+                "INSERT OR IGNORE INTO tap_reward_claims (player_id, milestone, reward, claimed_at) VALUES (?, ?, ?, ?)",
+                (player_id, item["taps"], item["reward"], now),
+            )
+        conn.execute(
+            """UPDATE daily_quest_progress SET progress = (
+                 SELECT target FROM daily_quest_progress q2
+                 WHERE q2.player_id = daily_quest_progress.player_id
+                   AND q2.quest_date = daily_quest_progress.quest_date
+                   AND q2.quest_id = daily_quest_progress.quest_id
+               ), claimed = 1 WHERE player_id = ?""",
+            (player_id,),
+        )
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "message": "Админ MAX активирован 👑", "state": result})
 
 
 @app.post("/api/gifts/send")
