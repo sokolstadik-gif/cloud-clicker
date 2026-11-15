@@ -89,6 +89,8 @@ jobs:
           after = transition.get_json()["state"]
           assert after["era"]["current"] == 2
           assert after["tap_power"] == 4
+          tap_upgrade = next(item for item in after["upgrades"] if item["id"] == "tap")
+          assert tap_upgrade["description"] == "+4 Cloudmoney за каждое нажатие"
           assert after["coins"] == 0
           assert after["total_taps"] == 5000
           assert after["winter_event"]["tickets"] == 35
