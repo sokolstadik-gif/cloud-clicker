@@ -285,7 +285,7 @@ h2 { margin-bottom: 0; font-size: 20px; letter-spacing: -.55px; }
 .boost-bottom .primary-button { min-height: 38px; }
 .upgrade-category { display: inline-block; margin: 4px 0 5px; color: #80a4bf; font-size: 8px; font-weight: 850; letter-spacing: 1px; text-transform: uppercase; }
 @media (max-width: 720px) {
-  .main-tabs { margin-right: -15px; padding-right: 15px; }
+  .main-tabs { margin-left: 0; margin-right: 0; padding-right: 6px; width: auto; box-sizing: border-box; }
   .tab-button { min-width: 82px; font-size: 9px; }
   .combo-grid { grid-template-columns: 1fr; }
   .combo-card { min-height: auto; display: grid; grid-template-columns: 25px 38px 1fr; align-items: center; gap: 8px; padding: 11px 13px; }
