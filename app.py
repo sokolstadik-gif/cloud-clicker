@@ -1235,6 +1235,10 @@ def send_gift():
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         sender = ensure_player(conn, player_id)
+        # PostgreSQL ignores SQLite's BEGIN IMMEDIATE; this no-op update obtains
+        # a per-player row lock so concurrent sends cannot exceed the daily cap.
+        conn.execute("UPDATE players SET last_active_at = last_active_at WHERE id = ?", (player_id,))
+        sender = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         recipient = conn.execute(
             """SELECT p.id FROM referral_codes r
                JOIN players p ON p.id = r.player_id
@@ -1281,6 +1285,9 @@ def activate_gift():
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = ensure_player(conn, player_id)
+        # Serialize gift activations for this receiver on PostgreSQL as well as SQLite.
+        conn.execute("UPDATE players SET last_active_at = last_active_at WHERE id = ?", (player_id,))
+        row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         gift = conn.execute(
             "SELECT * FROM player_gifts WHERE id = ? AND receiver_id = ?",
             (gift_id, player_id),
@@ -1935,6 +1942,10 @@ def process_successful_payment(message: dict[str, Any]) -> None:
         if not payment:
             app.logger.error("Successful payment has unknown invoice payload")
             return
+        # Lock the payment record before checking status. This makes webhook retries
+        # idempotent even when Telegram delivers the same update concurrently.
+        conn.execute("UPDATE star_payments SET status = status WHERE id = ?", (payment["id"],))
+        payment = conn.execute("SELECT * FROM star_payments WHERE id = ?", (payment["id"],)).fetchone()
         if payment["status"] == "paid":
             return  # Idempotent webhook retry; do not credit twice.
         if payment["status"] != "pending" or payment["telegram_id"] != telegram_id or total_amount != int(payment["stars_amount"]):
