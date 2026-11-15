@@ -231,3 +231,13 @@ body::before {
   .leader-profile-button { padding:6px; }
   .profile-public-stats { grid-template-columns:1fr; }
 }
+
+
+/* Leaderboard filters */
+.leaderboard-filter { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 15px; margin-bottom:10px; }
+.leaderboard-filter label { color:#9eb5c8; font-size:10px; }
+.leaderboard-filter select { min-height:36px; max-width:230px; border:1px solid var(--line); border-radius:9px; background:#0a111a; color:#d8efff; padding:0 10px; font-size:10px; }
+@media(max-width:520px) {
+  .leaderboard-filter { align-items:stretch; flex-direction:column; }
+  .leaderboard-filter select { max-width:none; width:100%; }
+}
