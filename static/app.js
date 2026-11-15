@@ -152,6 +152,43 @@ async function openPublicProfile(code) {
   } catch (error) { showToast(error.message); }
 }
 
+function renderEraTab(state) {
+  const era = state.era;
+  if (!era) return;
+  $('eraTabPanelTitle').textContent = era.name;
+  $('eraTabCurrency').textContent = `Валюта эпохи: ${era.currency}`;
+  $('eraTabNumber').textContent = `ЭПОХА ${era.current} / 4`;
+  const progress = era.progress || {};
+  const names = {
+    taps: 'Нажатия только в первой эпохе',
+    upgrade_purchases: 'Покупки улучшений только во второй эпохе',
+    coins_earned_era2_and_era3: 'Монеты, заработанные во второй и третьей эпохах'
+  };
+  if (progress.next_era) {
+    $('eraTabRequirement').textContent = `Для эпохи ${progress.next_era}: ${names[progress.metric] || 'условие перехода'}`;
+    $('eraTabProgressText').textContent = `${fmt.format(progress.progress)} / ${fmt.format(progress.target)}`;
+    $('eraTabProgressFill').style.width = `${Math.min(100, progress.target ? progress.progress / progress.target * 100 : 0)}%`;
+    $('eraTabTransitionBtn').hidden = false;
+    $('eraTabTransitionBtn').disabled = !progress.unlocked;
+    $('eraTabTransitionBtn').textContent = progress.unlocked
+      ? `Открыть эпоху ${progress.next_era} · переход необратим`
+      : `Осталось: ${fmt.format(progress.remaining)}`;
+  } else {
+    $('eraTabRequirement').textContent = 'Ты достиг последней эпохи — Божественного измерения.';
+    $('eraTabProgressText').textContent = 'МАКСИМАЛЬНАЯ ЭПОХА';
+    $('eraTabProgressFill').style.width = '100%';
+    $('eraTabTransitionBtn').hidden = true;
+  }
+  const archive = $('eraTabArchive');
+  archive.replaceChildren();
+  (era.archive || []).forEach((item) => {
+    const entry = document.createElement('span');
+    entry.className = 'era-archive-item';
+    entry.textContent = `${item.name}: баланс ${fmt.format(item.balance)} ${item.currency} · заработано ${fmt.format(item.earned)} · ${fmt.format(item.taps)} тапов · улучшений ${fmt.format(item.upgrade_purchases)}`;
+    archive.append(entry);
+  });
+}
+
 function renderReferrals(state) {
   const data = state.referrals;
   if (!data) return;
@@ -365,6 +402,7 @@ async function purchaseWinterItem(item_code) {
 function renderState(state) {
   currentState = state;
   renderEra(state);
+  renderEraTab(state);
   renderWinterEvent(state);
   renderGifts(state);
   renderReferrals(state);
@@ -946,6 +984,7 @@ $('tapBtn').addEventListener('click', (event) => {
   drainClicks();
 });
 $('eraTransitionBtn').addEventListener('click', transitionEra);
+$('eraTabTransitionBtn').addEventListener('click', transitionEra);
 $('winterClaimBtn').addEventListener('click', claimWinterCalendar);
 $('copyReferralBtn').addEventListener('click', async () => {
   try {
