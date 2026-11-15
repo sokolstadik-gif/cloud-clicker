@@ -288,6 +288,36 @@ function renderWinterEvent(state) {
     tile.append(numberLabel, rewardLabel, status);
     root.append(tile);
   }
+  const questRoot = $('winterQuests');
+  questRoot.replaceChildren();
+  (event.quests || []).forEach((quest) => {
+    const card = document.createElement('article');
+    card.className = `winter-quest panel${quest.claimed ? ' is-claimed' : quest.unlocked ? ' is-unlocked' : ''}`;
+    const icon = document.createElement('div');
+    icon.className = 'winter-quest-icon';
+    icon.textContent = quest.icon;
+    const body = document.createElement('div');
+    const title = document.createElement('h3');
+    title.textContent = quest.title;
+    const description = document.createElement('p');
+    description.textContent = quest.description;
+    const progress = document.createElement('small');
+    progress.textContent = `${fmt.format(quest.progress)} / ${fmt.format(quest.target)}`;
+    const track = document.createElement('div');
+    track.className = 'reward-track compact';
+    const fill = document.createElement('div');
+    fill.style.width = `${quest.percent}%`;
+    track.append(fill);
+    body.append(title, description, progress, track);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary-button';
+    button.textContent = quest.claimed ? 'Получено' : quest.unlocked ? `Забрать +${quest.reward} 🎟` : `+${quest.reward} 🎟`;
+    button.disabled = quest.claimed || !quest.unlocked;
+    if (quest.unlocked && !quest.claimed) button.addEventListener('click', () => claimWinterQuest(quest.id));
+    card.append(icon, body, button);
+    questRoot.append(card);
+  });
   const shop = $('winterShop');
   shop.replaceChildren();
   (event.shop || []).forEach((item) => {
@@ -311,6 +341,15 @@ function renderWinterEvent(state) {
     card.append(icon, title, description, era, button);
     shop.append(card);
   });
+}
+
+async function claimWinterQuest(id) {
+  try {
+    const data = await api('/api/winter/quest/claim', 'POST', { id });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(`Зимнее задание выполнено: +${fmt.format(data.reward)} билетиков!`);
+    else showToast(data.error || 'Задание пока недоступно.');
+  } catch (error) { showToast(error.message); }
 }
 
 async function purchaseWinterItem(item_code) {
