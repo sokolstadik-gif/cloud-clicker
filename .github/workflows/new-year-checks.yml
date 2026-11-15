@@ -31,6 +31,8 @@ jobs:
         run: |
           python - <<'PY'
           import app
+          from new_year_rules import era_power_multiplier
+          assert [era_power_multiplier(i) for i in range(1, 5)] == [1, 4, 16, 64]
           client = app.app.test_client()
           response = client.get("/api/state")
           assert response.status_code == 200, response.get_data(as_text=True)
@@ -66,6 +68,7 @@ jobs:
           assert transition.status_code == 200, transition.get_data(as_text=True)
           after = transition.get_json()["state"]
           assert after["era"]["current"] == 2
+          assert after["tap_power"] == 4
           assert after["coins"] == 0
           assert after["total_taps"] == 5000
           assert after["winter_event"]["tickets"] == 35
@@ -136,5 +139,5 @@ jobs:
               assert received["status"] == "collected"
           blocked = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
           assert blocked.status_code == 409
-          print("SQLite migration, era archive, winter calendar, achievements, and gift boost rules: OK")
+          print("SQLite/PostgreSQL, fourfold eras, archive, calendar, winter shop/quests, gifts, profiles and leaderboards: OK")
           PY
