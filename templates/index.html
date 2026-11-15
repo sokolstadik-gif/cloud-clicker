@@ -69,7 +69,7 @@
             <span>В секунду <b id="passiveIncome">+0</b></span>
           </div>
 
-          <button class="cloud-button" id="tapBtn" type="button" aria-label="Click the cloud to earn Cloudcoin">
+          <button class="cloud-button" id="tapBtn" type="button" aria-label="Нажми на облако, чтобы заработать монеты">
             <span class="tap-ring"></span>
             <svg class="cloud-art" viewBox="0 0 220 150" role="img" aria-label="Облако для нажатий">
               <defs>
@@ -118,7 +118,7 @@
             <div class="daily-copy">
               <p class="eyebrow">КАЖДЫЙ ДЕНЬ</p>
               <h2>Ежедневный бонус</h2>
-              <p>Забери Cloudcoin за вход</p>
+              <p>Забери валюту текущей эпохи за вход</p>
             </div>
             <button class="primary-button" id="dailyBtn" type="button">Забрать +250</button>
           </section>
@@ -132,7 +132,7 @@
           </section>
           <section class="mini-tip panel">
             <span class="mini-tip-icon">☁</span>
-            <div><b>Каждый тап приближает к цели</b><p>Копи Cloudcoin, открывай улучшения и забирай награды за достижения.</p></div>
+            <div><b>Каждый тап приближает к цели</b><p>Копи валюту эпохи, открывай улучшения и забирай награды за достижения.</p></div>
           </section>
         </aside>
       </section>
@@ -143,7 +143,7 @@
             <p class="eyebrow">РАЗВИВАЙ СВОЁ ОБЛАКО</p>
             <h2>Улучшения</h2>
           </div>
-          <span class="section-caption">Покупай за Cloudcoin</span>
+          <span class="section-caption">Покупай за валюту эпохи</span>
         </div>
         <div class="upgrade-grid" id="upgradeList">
           <div class="loading-card">Загружаем улучшения…</div>
@@ -264,7 +264,7 @@
             <input id="cipherAnswer" type="text" maxlength="12" autocomplete="off" placeholder="ТВОЙ ОТВЕТ" aria-label="Ответ на шифр">
             <button class="primary-button" id="cipherSubmitBtn" type="submit">Проверить</button>
           </form>
-          <p class="cipher-status" id="cipherStatus">Награда за правильный ответ — 2 000 Cloudcoin.</p>
+          <p class="cipher-status" id="cipherStatus">Награда за правильный ответ — 2 000 монет текущей эпохи.</p>
         </div>
       </section>
     </section>
@@ -282,7 +282,7 @@
         <div class="section-title-row"><div><p class="eyebrow">ВРЕМЕННОЕ УСИЛЕНИЕ</p><h1>Бустеры</h1></div><span class="level-pill">Power-up</span></div>
         <div class="boost-grid">
           <article class="boost-card panel">
-            <div class="boost-icon">⚡</div><div><h2>Турбо-облако</h2><p>Удваивает Cloudcoin за каждый тап на 30 секунд. Можно продлить действующий эффект.</p></div>
+            <div class="boost-icon">⚡</div><div><h2>Турбо-облако</h2><p>Удваивает монеты за каждый тап на 30 секунд. Можно продлить действующий эффект.</p></div>
             <div class="boost-bottom"><span id="turboStatus">Не активно</span><button class="primary-button" id="turboBtn" type="button">Активировать · 500 CC</button></div>
           </article>
           <article class="boost-card panel">
@@ -290,7 +290,7 @@
             <div class="boost-bottom"><span id="energyBoostStatus">Заполни шкалу энергии</span><button class="primary-button" id="energyBoostBtn" type="button">Восстановить · 250 CC</button></div>
           </article>
         </div>
-        <p class="privacy-note">Бустеры покупаются за Cloudcoin. Их действие проверяется сервером.</p>
+        <p class="privacy-note">Бустеры покупаются за валюту текущей эпохи. Их действие проверяется сервером.</p>
       </section>
     </section>
 
@@ -324,7 +324,7 @@
         </div>
         <div class="reward-intro panel">
           <div class="reward-big-icon">🎁</div>
-          <div><b>Тапай и получай Cloudcoin</b><p>Достигай целей по количеству нажатий и забирай награды. Каждую награду можно получить только один раз.</p></div>
+          <div><b>Тапай и получай монеты</b><p>Достигай целей по количеству нажатий и забирай награды. Каждую награду можно получить только один раз.</p></div>
         </div>
         <div class="reward-list" id="rewardsList"><div class="loading-card panel">Загружаем награды…</div></div>
         <div class="section-title-row" style="margin-top:28px">
@@ -339,11 +339,11 @@
       <section class="section-block page-section">
         <div class="section-title-row"><div><p class="eyebrow">ТВОЙ ПРОГРЕСС</p><h1>Статистика</h1></div><span class="level-pill" id="statsLevel">Уровень 1</span></div>
         <div class="stats-grid">
-          <article class="stat-tile panel"><span>Баланс</span><strong id="statsBalance">0</strong><small>Cloudcoin</small></article>
-          <article class="stat-tile panel"><span>Всего заработано</span><strong id="statsEarned">0</strong><small>Cloudcoin за всё время</small></article>
+          <article class="stat-tile panel"><span>Баланс</span><strong id="statsBalance">0</strong><small>Валюта эпохи</small></article>
+          <article class="stat-tile panel"><span>Всего заработано</span><strong id="statsEarned">0</strong><small>За всё время</small></article>
           <article class="stat-tile panel"><span>Всего тапов</span><strong id="statsTaps">0</strong><small>нажатий на облако</small></article>
-          <article class="stat-tile panel"><span>Сила тапа</span><strong id="statsTapPower">+1</strong><small>Cloudcoin за нажатие</small></article>
-          <article class="stat-tile panel"><span>Пассивный доход</span><strong id="statsPassive">+0</strong><small>Cloudcoin в секунду</small></article>
+          <article class="stat-tile panel"><span>Сила тапа</span><strong id="statsTapPower">+1</strong><small>За нажатие</small></article>
+          <article class="stat-tile panel"><span>Пассивный доход</span><strong id="statsPassive">+0</strong><small>В секунду</small></article>
           <article class="stat-tile panel"><span>Уровни улучшений</span><strong id="statsUpgrades">0</strong><small>куплено уровней</small></article>
           <article class="stat-tile panel"><span>Энергия</span><strong id="statsEnergy">100 / 100</strong><small id="statsRegen">Восстановление 2 ед./сек.</small></article>
           <article class="stat-tile panel"><span>Место в рейтинге</span><strong id="statsRank">—</strong><small>среди игроков сайта</small></article>
@@ -376,12 +376,12 @@
     <section class="tab-panel" id="tab-shop" data-panel="shop" hidden>
       <section class="section-block page-section">
         <div class="section-title-row">
-          <div><p class="eyebrow">ПОДДЕРЖИ CLOUD CLICKER</p><h1>Магазин Cloudcoin</h1></div>
+          <div><p class="eyebrow">ПОДДЕРЖИ CLOUD CLICKER</p><h1>Магазин игровой валюты</h1></div>
           <span class="level-pill">⭐ Telegram Stars</span>
         </div>
         <div class="challenge-intro panel">
           <div class="challenge-icon">💎</div>
-          <div><b>Покупка Cloudcoin</b><p>Оплата проходит через встроенную систему Telegram Stars. Начисление выполняется сервером только после подтверждения платежа от Telegram.</p></div>
+          <div><b>Покупка игровой валюты</b><p>Оплата проходит через встроенную систему Telegram Stars. Начисление выполняется сервером только после подтверждения платежа от Telegram.</p></div>
         </div>
         <div class="shop-grid" id="shopPackages"><div class="loading-card panel">Загружаем наборы…</div></div>
         <p class="privacy-note">Цифровые товары внутри Telegram Mini Apps продаются за Telegram Stars (XTR). Не отправляй переводы вручную — покупай только через кнопку оплаты.</p>
@@ -430,6 +430,6 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="{{ url_for('static', filename='app.js', v='8') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='9') }}" defer></script>
 </body>
 </html>
