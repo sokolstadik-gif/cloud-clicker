@@ -36,6 +36,7 @@ TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 REQUIRE_TELEGRAM_AUTH = os.environ.get("REQUIRE_TELEGRAM_AUTH", "0") == "1"
 TELEGRAM_INIT_DATA_MAX_AGE = int(os.environ.get("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 
 # Telegram Stars (XTR) are the supported in-app payment currency for digital goods.
 STAR_PACKAGES = {
@@ -526,6 +527,7 @@ def validate_telegram_init_data(raw_init_data: str) -> dict[str, Any]:
         "username": str(user.get("username") or "")[:64],
         "first_name": str(user.get("first_name") or "")[:128],
         "last_name": str(user.get("last_name") or "")[:128],
+        "start_param": str(fields.get("start_param") or "")[:128],
     }
 
 
@@ -995,9 +997,13 @@ def referral_state(conn: sqlite3.Connection, player_id: str) -> dict[str, Any]:
         (player_id,),
     ).fetchone()
     base = PUBLIC_BASE_URL or ""
+    referral_link = (
+        f"https://t.me/{TELEGRAM_BOT_USERNAME}?startapp=ref_{code}"
+        if TELEGRAM_BOT_USERNAME else f"{base}/?ref={code}"
+    )
     return {
         "code": code,
-        "link": f"{base}/?ref={code}",
+        "link": referral_link,
         "invited": int(stats["total"] or 0),
         "active": int(stats["active"] or 0),
         "pending": int(stats["pending"] or 0),
@@ -1168,6 +1174,9 @@ def prepare_session():
     if raw_init_data:
         try:
             telegram_user = validate_telegram_init_data(raw_init_data)
+            start_param = str(telegram_user.get("start_param") or "")
+            if start_param.startswith("ref_") and len(start_param) <= 68:
+                session["referral_code"] = start_param[4:]
             player_id = bind_telegram_user(telegram_user, guest_player_id)
             g.telegram_user = telegram_user
             g.telegram_player_id = player_id
