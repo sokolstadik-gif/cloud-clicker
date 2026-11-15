@@ -92,6 +92,18 @@ function renderProfile(state) {
   if (!profile) return;
   $('profileAvatar').value = profile.avatar;
   $('profileFrame').value = profile.frame;
+  const cosmeticSelect = $('profileCosmetic');
+  if (cosmeticSelect.options.length === 1) {
+    (profile.cosmetics || []).forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.code;
+      option.textContent = `${item.icon} ${item.title}`;
+      cosmeticSelect.append(option);
+    });
+  }
+  cosmeticSelect.value = profile.equipped_cosmetic || '';
+  const equipped = (profile.cosmetics || []).find(item => item.code === profile.equipped_cosmetic);
+  $('equippedCosmetic').textContent = equipped?.icon || '';
   $('publicProfileLink').value = `${window.location.origin}${profile.url}`;
 }
 
@@ -100,6 +112,7 @@ async function saveProfile() {
     const data = await api('/api/profile/update', 'POST', {
       avatar: $('profileAvatar').value,
       frame: $('profileFrame').value,
+      cosmetic: $('profileCosmetic').value,
     });
     if (data.state) renderState(data.state);
     if (data.ok) showToast('Оформление профиля сохранено!');
@@ -116,6 +129,11 @@ async function openPublicProfile(code) {
     $('profileDialogAvatar').className = `creator-avatar profile-frame-${profile.frame}`;
     $('profileDialogTitle').textContent = profile.nickname;
     $('profileDialogEra').textContent = `Эпоха ${profile.era} · ${profile.frame} рамка`;
+    if (profile.equipped_cosmetic) {
+      const cosmetic = document.createElement('p');
+      cosmetic.textContent = `Украшение: ${profile.equipped_cosmetic}`;
+      $('profileDialogEra').append(cosmetic);
+    }
     const stats = $('profileDialogStats');
     stats.replaceChildren();
     [
