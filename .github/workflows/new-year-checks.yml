@@ -31,6 +31,7 @@ jobs:
         run: |
           python - <<'PY'
           import app
+          from concurrent.futures import ThreadPoolExecutor
           from new_year_rules import era_power_multiplier
           assert [era_power_multiplier(i) for i in range(1, 5)] == [1, 4, 16, 64]
           client = app.app.test_client()
@@ -44,6 +45,22 @@ jobs:
           assert winter.get_json()["reward"] == 10
           duplicate = client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": csrf})
           assert duplicate.status_code == 409
+          race_player_id = "a" * 32
+          with app.db_connection() as conn:
+              app.ensure_player(conn, race_player_id)
+          race_clients = [app.app.test_client(), app.app.test_client()]
+          for race_client in race_clients:
+              with race_client.session_transaction() as race_session:
+                  race_session["player_id"] = race_player_id
+                  race_session["csrf_token"] = "race-csrf"
+          def race_calendar_claim(race_client):
+              return race_client.post("/api/winter/calendar/claim", json={}, headers={"X-CSRF-Token": "race-csrf"}).status_code
+          with ThreadPoolExecutor(max_workers=2) as pool:
+              race_statuses = list(pool.map(race_calendar_claim, race_clients))
+          assert sorted(race_statuses) == [200, 409], race_statuses
+          with app.db_connection() as conn:
+              race_tickets = conn.execute("SELECT tickets FROM winter_event_players WHERE player_id = ?", (race_player_id,)).fetchone()["tickets"]
+              assert race_tickets == 10
           with app.db_connection() as conn:
               for day_number in range(2, 8):
                   conn.execute(
@@ -53,6 +70,8 @@ jobs:
           winter_quest = client.post("/api/winter/quest/claim", json={"id": "calendar_7"}, headers={"X-CSRF-Token": csrf})
           assert winter_quest.status_code == 200, winter_quest.get_data(as_text=True)
           assert winter_quest.get_json()["reward"] == 25
+          duplicate_winter_quest = client.post("/api/winter/quest/claim", json={"id": "calendar_7"}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_winter_quest.status_code == 409
           with app.db_connection() as conn:
               conn.execute(
                   "UPDATE players SET coins = 1234, total_earned = 1234, total_taps = 5000, tap_level = 2 WHERE id = ?",
@@ -117,12 +136,22 @@ jobs:
           for gift_id in ["1" * 32, "2" * 32]:
               activated = client.post("/api/gifts/activate", json={"gift_id": gift_id}, headers={"X-CSRF-Token": csrf})
               assert activated.status_code == 200, activated.get_data(as_text=True)
+          duplicate_boost = client.post("/api/gifts/activate", json={"gift_id": "1" * 32}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_boost.status_code == 409
           third_boost = client.post("/api/gifts/activate", json={"gift_id": "3" * 32}, headers={"X-CSRF-Token": csrf})
           assert third_boost.status_code == 409
           assert third_boost.get_json()["state"]["gifts"]["active_boosts"] == 2
           tap = client.post("/api/click", json={"count": 1}, headers={"X-CSRF-Token": csrf})
           assert tap.status_code == 200, tap.get_data(as_text=True)
           assert tap.get_json()["earned"] == 10
+          with app.db_connection() as conn:
+              conn.execute("UPDATE player_gifts SET expires_at = 0 WHERE id = ?", ("1" * 32,))
+          expired_state = client.get("/api/state").get_json()["state"]
+          expired_gift = next(item for item in expired_state["gifts"]["inventory"] if item["id"] == "1" * 32)
+          assert expired_gift["status"] == "expired"
+          freed_slot = client.post("/api/gifts/activate", json={"gift_id": "3" * 32}, headers={"X-CSRF-Token": csrf})
+          assert freed_slot.status_code == 200, freed_slot.get_data(as_text=True)
+          assert freed_slot.get_json()["state"]["gifts"]["active_boosts"] == 2
           with app.db_connection() as conn:
               app.ensure_player(conn, "f" * 32)
               conn.execute(
