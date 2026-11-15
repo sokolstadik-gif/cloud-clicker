@@ -167,3 +167,27 @@ body::before {
   .referral-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .referral-link-row { grid-template-columns:1fr; }
 }
+
+
+/* Friend gift inventory and sending */
+.gift-send-panel { display:grid; grid-template-columns:1fr; gap:9px; padding:18px; }
+.gift-send-panel label { color:#a9c4d8; font-size:10px; font-weight:800; }
+.gift-send-panel input,.gift-send-panel select { width:100%; min-height:42px; border:1px solid var(--line); border-radius:10px; background:#0a111a; color:#d8efff; padding:0 12px; font:inherit; font-size:12px; }
+.gift-send-panel .primary-button { justify-self:start; min-height:42px; }
+.gift-inventory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.gift-card { display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:12px; padding:14px; }
+.gift-card-icon { display:grid; place-items:center; width:42px; height:42px; border-radius:12px; background:rgba(130,190,224,.12); font-size:23px; }
+.gift-card-body { min-width:0; }
+.gift-card-body h3 { margin:0 0 4px; color:#d9efff; font-size:12px; }
+.gift-card-body p { margin:0 0 5px; color:#91a9bc; font-size:10px; }
+.gift-card-body small { display:block; margin-top:3px; color:#8299ac; font-size:9px; overflow-wrap:anywhere; }
+.gift-card.rarity-rare { border-color:rgba(109,183,232,.3); }
+.gift-card.rarity-epic { border-color:rgba(176,139,236,.36); }
+.gift-card.rarity-legendary { border-color:rgba(238,190,111,.45); box-shadow:0 0 18px rgba(238,190,111,.06); }
+.gift-card .secondary-button { min-height:34px; padding:0 10px; font-size:10px; white-space:nowrap; }
+@media(max-width:620px) {
+  .gift-inventory { grid-template-columns:1fr; }
+  .gift-card { grid-template-columns:36px minmax(0,1fr); }
+  .gift-card-icon { width:36px; height:36px; }
+  .gift-card > div:last-child { grid-column:2; }
+}
