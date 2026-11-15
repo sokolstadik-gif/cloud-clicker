@@ -538,7 +538,7 @@ html, body {
 /* Keep the tab rail aligned with the app shell instead of inheriting a mobile full-bleed offset. */
 .main-tabs {
   box-sizing: border-box;
-  width: 100%;
+  width: auto;
   margin-left: 0 !important;
   margin-right: 0 !important;
   padding-left: 6px;
