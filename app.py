@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
-DB_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "game.db"))
+DB_PATH = Path(os.environ.get("DATABASE_PATH", str(BASE_DIR / "game.db")))
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 REQUIRE_TELEGRAM_AUTH = os.environ.get("REQUIRE_TELEGRAM_AUTH", "0") == "1"
