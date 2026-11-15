@@ -21,6 +21,14 @@ WINTER_TICKETS_FIRST_DAY = 10
 WINTER_TICKETS_STEP = 2
 
 
+def era_power_multiplier(era: int) -> int:
+    """Each era starts with four times the tap/passive power of the prior era."""
+    era = int(era)
+    if era not in ERA_NAMES:
+        raise ValueError("era must be between 1 and 4")
+    return 4 ** (era - 1)
+
+
 def winter_ticket_reward(day_number: int) -> int:
     """Return the ticket reward for a 1-based day of the 31-day event."""
     if not 1 <= int(day_number) <= WINTER_CALENDAR_DAYS:
