@@ -60,6 +60,13 @@ jobs:
           assert after["coins"] == 0
           assert after["total_taps"] == 5000
           assert after["winter_event"]["tickets"] == 10
+          with app.db_connection() as conn:
+              conn.execute("UPDATE winter_event_players SET tickets = 1000 WHERE player_id = ?", (player_id,))
+          cosmetic = client.post("/api/winter/shop/purchase", json={"item_code": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
+          assert cosmetic.status_code == 200, cosmetic.get_data(as_text=True)
+          assert cosmetic.get_json()["state"]["winter_event"]["tickets"] == 920
+          duplicate_cosmetic = client.post("/api/winter/shop/purchase", json={"item_code": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_cosmetic.status_code == 409
           archive = after["era"]["archive"]
           first = next(item for item in archive if item["era"] == 1)
           assert first["balance"] == 1234
