@@ -440,6 +440,7 @@ async function purchaseWinterItem(item_code) {
 
 function renderState(state) {
   currentState = state;
+  const currency = state.era?.currency || 'Cloudcoin';
   renderEra(state);
   renderEraTab(state);
   renderWinterEvent(state);
@@ -455,14 +456,18 @@ function renderState(state) {
   $('levelPill').textContent = `Уровень ${1 + state.total_upgrade_levels}`;
   if (document.activeElement !== $('nicknameInput')) $('nicknameInput').value = state.nickname;
   $('dailyBtn').disabled = !state.daily_available;
-  $('dailyBtn').textContent = state.daily_available ? `Забрать +${fmt.format(state.daily_reward)} CC` : 'Уже получено ✓';
+  $('dailyBtn').textContent = state.daily_available ? `Забрать +${fmt.format(state.daily_reward)} ${currency}` : 'Уже получено ✓';
   $('tapBtn').disabled = state.energy < 1;
 
   $('statsBalance').textContent = fmt.format(state.coins);
+  $('statsBalance').nextElementSibling.textContent = currency;
   $('statsEarned').textContent = fmt.format(state.total_earned);
+  $('statsEarned').nextElementSibling.textContent = `${currency} за всё время`;
   $('statsTaps').textContent = fmt.format(state.total_taps);
   $('statsTapPower').textContent = `+${fmt.format(state.tap_power)}`;
+  $('statsTapPower').nextElementSibling.textContent = `${currency} за нажатие`;
   $('statsPassive').textContent = `+${fmt.format(state.passive_per_sec)}`;
+  $('statsPassive').nextElementSibling.textContent = `${currency} в секунду`;
   $('statsUpgrades').textContent = fmt.format(state.total_upgrade_levels);
   $('statsEnergy').textContent = `${fmt.format(Math.floor(state.energy))} / ${fmt.format(state.max_energy)}`;
   $('statsRegen').textContent = `Восстановление ${state.energy_regen.toFixed(1).replace('.', ',')} ед./сек.`;
@@ -506,7 +511,7 @@ function renderUpgrades(state) {
     buy.type = 'button';
     buy.className = 'buy-button';
     buy.disabled = state.coins < item.cost;
-    buy.textContent = `Купить · ${fmt.format(item.cost)} CC`;
+    buy.textContent = `Купить · ${fmt.format(item.cost)} ${state.era.currency}`;
     buy.addEventListener('click', () => buyUpgrade(item.id));
     card.append(top, category, title, description, buy);
     root.append(card);
@@ -586,7 +591,7 @@ function renderRewards(state) {
     const title = document.createElement('h3');
     title.textContent = `${fmt.format(item.taps)} тапов`;
     const description = document.createElement('p');
-    description.textContent = `Награда: ${fmt.format(item.reward)} Cloudcoin`;
+    description.textContent = `Награда: ${fmt.format(item.reward)} ${state.era.currency}`;
     const progress = document.createElement('div');
     progress.className = 'reward-track compact';
     const progressFill = document.createElement('div');
@@ -639,7 +644,7 @@ function renderCombo(state) {
   const doneCount = combo.cards.filter((item) => item.done).length;
   $('comboStatus').textContent = combo.claimed ? 'Награда уже получена сегодня' : `Выполнено ${doneCount} из 3`;
   $('comboClaimBtn').disabled = !combo.completed || combo.claimed;
-  $('comboClaimBtn').textContent = combo.claimed ? 'Получено ✓' : `Забрать ${fmt.format(combo.reward)} CC`;
+  $('comboClaimBtn').textContent = combo.claimed ? 'Получено ✓' : `Забрать ${fmt.format(combo.reward)} ${state.era.currency}`;
 }
 
 function renderCipher(state) {
@@ -650,7 +655,7 @@ function renderCipher(state) {
   $('cipherAnswer').disabled = cipher.claimed;
   $('cipherStatus').textContent = cipher.claimed
     ? 'Секретный код уже активирован сегодня ✓'
-    : `Награда за правильный ответ — ${fmt.format(cipher.reward)} Cloudcoin.`;
+    : `Награда за правильный ответ — ${fmt.format(cipher.reward)} ${state.era.currency}.`;
   $('cipherSubmitBtn').textContent = cipher.claimed ? 'Получено ✓' : 'Проверить';
 }
 
@@ -674,7 +679,7 @@ function renderQuests(state) {
     const progressText = document.createElement('span');
     progressText.textContent = `${fmt.format(quest.progress)} / ${fmt.format(quest.target)}`;
     const rewardText = document.createElement('b');
-    rewardText.textContent = `+${fmt.format(quest.reward)} CC`;
+    rewardText.textContent = `+${fmt.format(quest.reward)} ${state.era.currency}`;
     meta.append(progressText, rewardText);
     const track = document.createElement('div');
     track.className = 'reward-track compact';
@@ -702,7 +707,7 @@ function renderBoosts(state) {
   $('turboStatus').textContent = boosts.turbo_active
     ? `x2 активно · ${boosts.turbo_remaining} сек.`
     : 'Удваивает награду за тап на 30 секунд';
-  $('turboBtn').textContent = boosts.turbo_active ? 'Продлить · 500 CC' : 'Активировать · 500 CC';
+  $('turboBtn').textContent = boosts.turbo_active ? `Продлить · ${fmt.format(boosts.turbo_cost)} ${state.era.currency}` : `Активировать · ${fmt.format(boosts.turbo_cost)} ${state.era.currency}`;
   $('turboBtn').disabled = state.coins < boosts.turbo_cost;
   $('energyBoostStatus').textContent = boosts.energy_full ? 'Энергия уже полная' : 'Мгновенно заполнить шкалу';
   $('energyBoostBtn').disabled = boosts.energy_full || state.coins < boosts.energy_cost;
@@ -724,7 +729,7 @@ async function refreshShop() {
       title.textContent = item.title;
       const amount = document.createElement('strong');
       amount.className = 'shop-coins';
-      amount.textContent = `${fmt.format(item.coins)} Cloudcoin`;
+      amount.textContent = `${fmt.format(item.coins)} ${currentState?.era?.currency || 'Cloudcoin'}`;
       const price = document.createElement('div');
       price.className = 'shop-price';
       price.textContent = `⭐ ${fmt.format(item.stars)} Stars`;
@@ -836,10 +841,10 @@ async function drainClicks() {
     if (data.state) renderState(data.state);
     if (data.ok) {
       if (data.accepted_count < count) pendingClicks = 0;
-      if (data.earned >= 5) showToast(`+${fmt.format(data.earned)} Cloudcoin`);
+      if (data.earned >= 5) showToast(`+${fmt.format(data.earned)} ${currentState?.era?.currency || 'монет'}`);
     } else {
       pendingClicks = 0;
-      showToast(data.error || 'Не получилось начислить Cloudcoin.');
+      showToast(data.error || 'Не получилось начислить монеты.');
       if (data.state) renderState(data.state);
     }
   } catch (error) {
@@ -916,7 +921,7 @@ async function claimDaily() {
     const data = await api('/api/daily', 'POST', {});
     if (data.state) renderState(data.state);
     if (data.ok) {
-      showToast(`Ежедневный бонус: +${fmt.format(data.state.daily_reward || 250)} Cloudcoin!`);
+      showToast(`Ежедневный бонус: +${fmt.format(data.state.daily_reward || 250)} ${data.state.era.currency}!`);
       refreshLeaderboard();
     } else {
       showToast(data.error || 'Бонус пока недоступен.');
@@ -932,7 +937,7 @@ async function claimTapReward(milestone) {
     const data = await api('/api/tap-reward/claim', 'POST', { milestone });
     if (data.state) renderState(data.state);
     if (data.ok) {
-      showToast(`Награда получена: +${fmt.format(data.reward)} Cloudcoin!`);
+      showToast(`Награда получена: +${fmt.format(data.reward)} ${data.state.era.currency}!`);
       refreshLeaderboard();
     } else {
       showToast(data.error || 'Не удалось получить награду.');
@@ -945,7 +950,7 @@ async function claimCombo() {
   try {
     const data = await api('/api/combo/claim', 'POST', {});
     if (data.state) renderState(data.state);
-    if (data.ok) { showToast(`Комбо выполнено: +${fmt.format(data.reward)} CC!`); refreshLeaderboard(); }
+    if (data.ok) { showToast(`Комбо выполнено: +${fmt.format(data.reward)} ${data.state.era.currency}!`); refreshLeaderboard(); }
     else showToast(data.error || 'Не удалось забрать комбо.');
   } catch (error) { showToast(error.message); }
 }
@@ -957,7 +962,7 @@ async function claimCipher(event) {
   try {
     const data = await api('/api/cipher/claim', 'POST', { answer });
     if (data.state) renderState(data.state);
-    if (data.ok) { $('cipherAnswer').value = ''; showToast(`Шифр разгадан: +${fmt.format(data.reward)} CC!`); refreshLeaderboard(); }
+    if (data.ok) { $('cipherAnswer').value = ''; showToast(`Шифр разгадан: +${fmt.format(data.reward)} ${data.state.era.currency}!`); refreshLeaderboard(); }
     else showToast(data.error || 'Код не принят.');
   } catch (error) { showToast(error.message); }
 }
@@ -966,7 +971,7 @@ async function claimQuest(id) {
   try {
     const data = await api('/api/quest/claim', 'POST', { id });
     if (data.state) renderState(data.state);
-    if (data.ok) { showToast(`Задание выполнено: +${fmt.format(data.reward)} CC!`); refreshLeaderboard(); }
+    if (data.ok) { showToast(`Задание выполнено: +${fmt.format(data.reward)} ${data.state.era.currency}!`); refreshLeaderboard(); }
     else showToast(data.error || 'Награда пока недоступна.');
   } catch (error) { showToast(error.message); }
 }
@@ -1023,7 +1028,7 @@ $('tapBtn').addEventListener('click', (event) => {
   if (pendingClicks >= 40) return;
   pendingClicks += 1;
   const multiplier = currentState.boosts?.turbo_active ? 2 : 1;
-  floatCoin(event.clientX || window.innerWidth / 2, event.clientY || window.innerHeight / 2, `+${currentState.tap_power * multiplier} CC`);
+  floatCoin(event.clientX || window.innerWidth / 2, event.clientY || window.innerHeight / 2, `+${currentState.tap_power * multiplier} ${currentState.era.currency}`);
   drainClicks();
 });
 $('eraTransitionBtn').addEventListener('click', transitionEra);
