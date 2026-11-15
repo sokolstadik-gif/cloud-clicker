@@ -257,3 +257,10 @@ body::before {
   .winter-quests { grid-template-columns:1fr; }
   .winter-quest { grid-template-columns:30px minmax(0,1fr) auto; gap:8px; }
 }
+
+
+.creator-avatar.profile-frame-cloud { border:2px solid rgba(146,192,220,.35); }
+.creator-avatar.profile-frame-winter { border:2px solid #9bdcff; box-shadow:0 0 18px rgba(130,205,255,.35); }
+.creator-avatar.profile-frame-cosmic { border:2px solid #b99cff; box-shadow:0 0 18px rgba(185,156,255,.32); }
+.creator-avatar.profile-frame-royal { border:2px solid #f0cf8a; box-shadow:0 0 18px rgba(240,207,138,.3); }
+.creator-avatar.profile-frame-divine { border:2px solid #fff0b4; box-shadow:0 0 24px rgba(255,240,180,.45); }
