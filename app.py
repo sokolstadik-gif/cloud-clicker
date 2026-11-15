@@ -1287,6 +1287,7 @@ def admin_max():
                 "INSERT OR IGNORE INTO tap_reward_claims (player_id, milestone, reward, claimed_at) VALUES (?, ?, ?, ?)",
                 (player_id, item["taps"], item["reward"], now),
             )
+        ensure_daily_quests(conn, player_id)
         conn.execute(
             """UPDATE daily_quest_progress SET progress = (
                  SELECT target FROM daily_quest_progress q2
