@@ -345,6 +345,13 @@ def init_db() -> None:
             claimed_at REAL NOT NULL,
             PRIMARY KEY (player_id, day_number)
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_cosmetics (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            item_code TEXT NOT NULL,
+            purchased_at REAL NOT NULL,
+            tickets_paid INTEGER NOT NULL,
+            PRIMARY KEY (player_id, item_code)
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS player_achievement_claims (
             player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
             achievement_id TEXT NOT NULL,
@@ -731,6 +738,7 @@ def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
         (row["id"], day_number),
     ).fetchone() if calendar["active"] else None
     player = conn.execute("SELECT tickets FROM winter_event_players WHERE player_id = ?", (row["id"],)).fetchone()
+    owned = {item["item_code"] for item in conn.execute("SELECT item_code FROM winter_cosmetics WHERE player_id = ?", (row["id"],)).fetchall()}
     return {
         "start_date": event_start.isoformat(),
         "calendar": {
@@ -739,6 +747,10 @@ def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
             "today_reward": winter_ticket_reward(day_number) if calendar["active"] else 0,
         },
         "tickets": int(player["tickets"]),
+        "shop": [
+            {"code": code, **item, "owned": code in owned, "available": int(row["active_era"]) >= item["era_required"]}
+            for code, item in WINTER_SHOP.items()
+        ],
         "claimed_days": [
             int(item["day_number"])
             for item in conn.execute(
@@ -747,6 +759,15 @@ def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
             ).fetchall()
         ],
     }
+
+
+WINTER_SHOP = {
+    "era1_santa_hat": {"title": "Золотая шапка Санты", "icon": "🎅", "description": "Праздничный образ Облачного королевства", "era_required": 1, "price": 80},
+    "era2_cosmic_snowflake": {"title": "Космическая снежинка", "icon": "❄️", "description": "Сияющий знак Космических облаков", "era_required": 2, "price": 120},
+    "era3_royal_ice_crown": {"title": "Королевская ледяная корона", "icon": "👑", "description": "Символ Небесной империи", "era_required": 3, "price": 180},
+    "era4_winter_wings": {"title": "Крылья зимнего света", "icon": "🪽", "description": "Легендарное украшение Божественного измерения", "era_required": 4, "price": 240},
+    "legendary_new_year_cloud": {"title": "Легендарное новогоднее облако", "icon": "🌌", "description": "Главная награда зимнего события", "era_required": 4, "price": 500},
+}
 
 
 GIFT_CATALOG = {
@@ -1182,6 +1203,36 @@ def claim_achievement():
         updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(updated, conn)
     return jsonify({"ok": True, "reward": reward, "state": result})
+
+
+@app.post("/api/winter/shop/purchase")
+def purchase_winter_cosmetic():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    code = str((request.get_json(silent=True) or {}).get("item_code", ""))
+    item = WINTER_SHOP.get(code)
+    if item is None:
+        return api_error("Такого праздничного предмета нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        event = winter_event_state(conn, row)
+        if int(row["active_era"]) < int(item["era_required"]):
+            return jsonify({"ok": False, "error": "Этот предмет откроется в более поздней эпохе.", "state": make_state(row, conn)}), 409
+        if conn.execute("SELECT 1 FROM winter_cosmetics WHERE player_id = ? AND item_code = ?", (player_id, code)).fetchone():
+            return jsonify({"ok": False, "error": "Этот предмет уже есть в твоей коллекции.", "state": make_state(row, conn)}), 409
+        price = int(item["price"])
+        if int(event["tickets"]) < price:
+            return jsonify({"ok": False, "error": "Не хватает праздничных билетиков.", "state": make_state(row, conn)}), 409
+        conn.execute("UPDATE winter_event_players SET tickets = tickets - ? WHERE player_id = ?", (price, player_id))
+        conn.execute(
+            "INSERT INTO winter_cosmetics (player_id, item_code, purchased_at, tickets_paid) VALUES (?, ?, ?, ?)",
+            (player_id, code, time.time(), price),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "item": code, "state": result, "message": "Праздничный предмет добавлен в коллекцию!"})
 
 
 @app.post("/api/winter/calendar/claim")
