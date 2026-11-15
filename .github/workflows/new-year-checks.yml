@@ -1,0 +1,39 @@
+name: New Year update checks
+
+on:
+  push:
+    branches:
+      - feature/new-year-update-2027
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  python-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q .
+      - name: Run domain rule tests
+        run: python -m unittest discover -s tests -p "test_new_year_rules.py" -v
+      - name: Smoke-test SQLite migration and state API
+        env:
+          DATABASE_URL: ""
+          DATABASE_PATH: /tmp/cloud-clicker-new-year-smoke.db
+        run: |
+          python - <<'PY'
+          import app
+          client = app.app.test_client()
+          response = client.get("/api/state")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          state = response.get_json()["state"]
+          assert state["era"]["current"] == 1
+          assert state["era"]["currency"] == "Cloudcoin"
+          print("SQLite migration and state API: OK")
+          PY
