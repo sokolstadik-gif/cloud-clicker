@@ -241,3 +241,19 @@ body::before {
   .leaderboard-filter { align-items:stretch; flex-direction:column; }
   .leaderboard-filter select { max-width:none; width:100%; }
 }
+
+
+/* Seasonal quest cards */
+.winter-quests { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.winter-quest { display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:10px; padding:13px; }
+.winter-quest-icon { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:rgba(133,187,220,.12); font-size:19px; }
+.winter-quest h3 { margin:0 0 4px; color:#d8efff; font-size:11px; }
+.winter-quest p { margin:0 0 5px; color:#91a9bc; font-size:9px; }
+.winter-quest small { color:#8299ac; font-size:8px; }
+.winter-quest .reward-track { height:4px; margin-top:5px; }
+.winter-quest button { min-height:32px; padding:0 9px; font-size:9px; white-space:nowrap; }
+.winter-quest.is-claimed { border-color:rgba(115,205,168,.3); }
+@media(max-width:620px) {
+  .winter-quests { grid-template-columns:1fr; }
+  .winter-quest { grid-template-columns:30px minmax(0,1fr) auto; gap:8px; }
+}
