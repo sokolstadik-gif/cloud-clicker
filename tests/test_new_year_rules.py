@@ -5,6 +5,7 @@ from new_year_rules import (
     active_gift_boost_count,
     can_activate_gift_boost,
     daily_gift_limit,
+    era_power_multiplier,
     era_unlock_progress,
     winter_calendar_status,
     winter_ticket_reward,
@@ -13,6 +14,11 @@ from new_year_rules import (
 
 
 class NewYearRulesTests(unittest.TestCase):
+    def test_era_power_is_four_times_the_previous_era(self):
+        self.assertEqual([era_power_multiplier(i) for i in range(1, 5)], [1, 4, 16, 64])
+        with self.assertRaises(ValueError):
+            era_power_multiplier(5)
+
     def test_ticket_calendar_is_31_days_and_increases_by_two(self):
         self.assertEqual(winter_ticket_reward(1), 10)
         self.assertEqual(winter_ticket_reward(2), 12)
