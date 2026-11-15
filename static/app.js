@@ -666,7 +666,8 @@ async function refreshState() {
 
 async function refreshLeaderboard() {
   try {
-    const data = await api('/api/leaderboard');
+    const sort = $('leaderboardSort')?.value || 'earned';
+    const data = await api(`/api/leaderboard?sort=${encodeURIComponent(sort)}`);
     $('myRank').textContent = data.my_rank ? `#${fmt.format(data.my_rank)}` : '—';
     $('statsRank').textContent = data.my_rank ? `#${fmt.format(data.my_rank)}` : '—';
     const root = $('leaderboard');
@@ -686,7 +687,7 @@ async function refreshLeaderboard() {
       rank.textContent = String(player.rank).padStart(2, '0');
       const name = document.createElement('span');
       name.className = 'leader-name';
-      name.textContent = player.nickname;
+      name.textContent = `${player.avatar || '☁️'} ${player.nickname}`;
       if (player.you) {
         const you = document.createElement('small');
         you.textContent = 'это ты';
@@ -694,7 +695,7 @@ async function refreshLeaderboard() {
       }
       const score = document.createElement('strong');
       score.className = 'leader-score';
-      score.textContent = `${fmt.format(player.total_earned)} CC`;
+      score.textContent = `${fmt.format(player.score)} ${player.score_label}`;
       const profileButton = document.createElement('button');
       profileButton.type = 'button';
       profileButton.className = 'leader-profile-button';
@@ -927,6 +928,7 @@ $('copyProfileBtn').addEventListener('click', async () => {
   }
 });
 
+$('leaderboardSort').addEventListener('change', refreshLeaderboard);
 $('dailyBtn').addEventListener('click', claimDaily);
 $('saveNameBtn').addEventListener('click', saveNickname);
 $('nicknameInput').addEventListener('keydown', (event) => {
