@@ -127,8 +127,9 @@ h2 { margin-bottom: 0; font-size: 20px; letter-spacing: -.55px; }
   .topbar { height: 64px; }
   .hero-grid { grid-template-columns: 1fr; gap: 12px; padding-top: 13px; }
   .game-card { min-height: 505px; padding: 22px 19px 18px; }
-  .side-column { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .daily-card { grid-column: 1 / -1; grid-template-columns: 42px 1fr; padding: 14px; }
+  .side-column { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .side-column > .panel { width: 100%; min-width: 0; }
+  .daily-card { grid-column: 1; grid-template-columns: 42px minmax(0, 1fr); padding: 14px; }
   .stats-card { padding: 15px; }
   .name-card { padding: 14px; }
   .section-block { margin-top: 27px; }
