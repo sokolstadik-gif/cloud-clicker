@@ -352,6 +352,20 @@ def init_db() -> None:
             claimed_at REAL NOT NULL,
             PRIMARY KEY (player_id, achievement_id)
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS referral_codes (
+            player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            code TEXT NOT NULL UNIQUE,
+            created_at REAL NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS referrals (
+            invitee_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            inviter_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            reward INTEGER NOT NULL DEFAULT 1000,
+            created_at REAL NOT NULL,
+            activated_at REAL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_referrals_inviter ON referrals(inviter_id, status)")
         conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
 
@@ -753,11 +767,59 @@ def achievement_state(conn: sqlite3.Connection, row: sqlite3.Row) -> list[dict[s
     return result
 
 
+def register_referral(conn: sqlite3.Connection, invitee_id: str, code: str | None) -> None:
+    if not code or len(code) > 64:
+        return
+    inviter = conn.execute("SELECT player_id FROM referral_codes WHERE code = ?", (code,)).fetchone()
+    if not inviter:
+        return
+    inviter_id = str(inviter["player_id"])
+    if inviter_id == invitee_id:
+        return
+    conn.execute(
+        """INSERT OR IGNORE INTO referrals
+           (invitee_id, inviter_id, status, reward, created_at)
+           VALUES (?, ?, 'pending', 1000, ?)""",
+        (invitee_id, inviter_id, time.time()),
+    )
+
+
+def referral_state(conn: sqlite3.Connection, player_id: str) -> dict[str, Any]:
+    saved = conn.execute("SELECT code FROM referral_codes WHERE player_id = ?", (player_id,)).fetchone()
+    if saved is None:
+        code = secrets.token_urlsafe(9)
+        conn.execute(
+            "INSERT OR IGNORE INTO referral_codes (player_id, code, created_at) VALUES (?, ?, ?)",
+            (player_id, code, time.time()),
+        )
+        saved = conn.execute("SELECT code FROM referral_codes WHERE player_id = ?", (player_id,)).fetchone()
+    code = str(saved["code"])
+    stats = conn.execute(
+        """SELECT COUNT(*) AS total,
+           SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+           SUM(CASE WHEN status = 'active' THEN reward ELSE 0 END) AS rewards
+           FROM referrals WHERE inviter_id = ?""",
+        (player_id,),
+    ).fetchone()
+    base = PUBLIC_BASE_URL or ""
+    return {
+        "code": code,
+        "link": f"{base}/?ref={code}",
+        "invited": int(stats["total"] or 0),
+        "active": int(stats["active"] or 0),
+        "pending": int(stats["pending"] or 0),
+        "rewards": int(stats["rewards"] or 0),
+        "activation_taps": 100,
+    }
+
+
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
     era_overview = get_era_overview(conn, row) if conn is not None else None
     winter_state = winter_event_state(conn, row) if conn is not None else None
     achievements = achievement_state(conn, row) if conn is not None else []
+    referrals = referral_state(conn, row["id"]) if conn is not None else None
     upgrades = []
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
@@ -830,6 +892,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
         "era": era_overview,
         "winter_event": winter_state,
         "achievements": achievements,
+        "referrals": referrals,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -866,6 +929,9 @@ def check_csrf() -> bool:
 @app.before_request
 def prepare_session():
     session.setdefault("csrf_token", secrets.token_urlsafe(24))
+    incoming_ref = request.args.get("ref", "")
+    if incoming_ref and len(incoming_ref) <= 64:
+        session["referral_code"] = incoming_ref
     guest_player_id = get_player_id()
     raw_init_data = request.headers.get("X-Telegram-Init-Data", "")
     if raw_init_data:
@@ -894,6 +960,8 @@ def state():
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = ensure_player(conn, player_id)
+        if getattr(g, "telegram_user", None):
+            register_referral(conn, player_id, session.get("referral_code"))
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
@@ -1016,6 +1084,23 @@ def click():
                total_taps = total_taps + ?, energy = energy - ? WHERE id = ?""",
             (reward, reward, accepted_count, accepted_count, player_id),
         )
+        invitee = conn.execute("SELECT total_taps FROM players WHERE id = ?", (player_id,)).fetchone()
+        if int(invitee["total_taps"]) >= 100:
+            referral = conn.execute(
+                "SELECT inviter_id, reward FROM referrals WHERE invitee_id = ? AND status = 'pending'",
+                (player_id,),
+            ).fetchone()
+            if referral:
+                conn.execute(
+                    "UPDATE referrals SET status = 'active', activated_at = ? WHERE invitee_id = ? AND status = 'pending'",
+                    (time.time(), player_id),
+                )
+                conn.execute(
+                    "UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?",
+                    (int(referral["reward"]), int(referral["reward"]), referral["inviter_id"]),
+                )
+                inviter_row = conn.execute("SELECT * FROM players WHERE id = ?", (referral["inviter_id"],)).fetchone()
+                sync_era_progress(conn, inviter_row)
         bump_quest(conn, player_id, "tap_100", accepted_count)
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(row, conn)
