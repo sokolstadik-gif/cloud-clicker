@@ -350,8 +350,12 @@ def init_db() -> None:
             public_code TEXT NOT NULL UNIQUE,
             avatar TEXT NOT NULL DEFAULT '☁️',
             frame TEXT NOT NULL DEFAULT 'cloud',
+            equipped_cosmetic TEXT NOT NULL DEFAULT '',
             updated_at REAL NOT NULL
         )""")
+        profile_columns = {item[1] for item in conn.execute("PRAGMA table_info(player_profiles)").fetchall()}
+        if "equipped_cosmetic" not in profile_columns:
+            conn.execute("ALTER TABLE player_profiles ADD COLUMN equipped_cosmetic TEXT NOT NULL DEFAULT ''")
         conn.execute("""CREATE TABLE IF NOT EXISTS winter_quest_claims (
             player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
             quest_id TEXT NOT NULL,
@@ -1019,10 +1023,18 @@ def ensure_public_profile(conn: sqlite3.Connection, player_id: str) -> sqlite3.R
 
 def profile_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     profile = ensure_public_profile(conn, row["id"])
+    cosmetics = [
+        {"code": item["item_code"],
+         "title": WINTER_SHOP.get(item["item_code"], {}).get("title", item["item_code"]),
+         "icon": WINTER_SHOP.get(item["item_code"], {}).get("icon", "🎨")}
+        for item in conn.execute("SELECT item_code FROM winter_cosmetics WHERE player_id = ? ORDER BY purchased_at", (row["id"],)).fetchall()
+    ]
     return {
         "public_code": str(profile["public_code"]),
         "avatar": str(profile["avatar"]),
         "frame": str(profile["frame"]),
+        "equipped_cosmetic": str(profile["equipped_cosmetic"] or ""),
+        "cosmetics": cosmetics,
         "url": f"/?profile={profile['public_code']}",
         "avatars": PROFILE_AVATARS,
         "frames": sorted(PROFILE_FRAMES.keys()),
@@ -1687,7 +1699,7 @@ def public_profile(public_code: str):
         return api_error("Профиль не найден.", 404)
     with db_connection() as conn:
         profile = conn.execute(
-            """SELECT pp.avatar, pp.frame, p.nickname, p.total_earned, p.total_taps, p.active_era, p.id
+            """SELECT pp.avatar, pp.frame, pp.equipped_cosmetic, p.nickname, p.total_earned, p.total_taps, p.active_era, p.id
                FROM player_profiles pp JOIN players p ON p.id = pp.player_id
                WHERE pp.public_code = ?""",
             (public_code,),
@@ -1717,7 +1729,7 @@ def public_profile(public_code: str):
             ).fetchall()
         ]
     return jsonify({"ok": True, "profile": {
-        "nickname": profile["nickname"], "avatar": profile["avatar"], "frame": profile["frame"],
+        "nickname": profile["nickname"], "avatar": profile["avatar"], "frame": profile["frame"], "equipped_cosmetic": profile["equipped_cosmetic"],
         "era": int(profile["active_era"]), "total_earned": int(profile["total_earned"]),
         "total_taps": int(profile["total_taps"]), "achievements": achievements,
         "cosmetics": cosmetics, "gifts": gifts,
@@ -1731,6 +1743,7 @@ def update_public_profile():
     payload = request.get_json(silent=True) or {}
     avatar = str(payload.get("avatar", "☁️"))
     frame = str(payload.get("frame", "cloud"))
+    cosmetic = str(payload.get("cosmetic", ""))
     if avatar not in PROFILE_AVATARS or frame not in PROFILE_FRAMES:
         return api_error("Такое оформление профиля недоступно.")
     player_id = get_player_id()
@@ -1739,8 +1752,10 @@ def update_public_profile():
         row = ensure_player(conn, player_id)
         if int(row["active_era"]) < PROFILE_FRAMES[frame]:
             return jsonify({"ok": False, "error": "Рамка откроется в более поздней эпохе.", "state": make_state(row, conn)}), 409
+        if cosmetic and not conn.execute("SELECT 1 FROM winter_cosmetics WHERE player_id = ? AND item_code = ?", (player_id, cosmetic)).fetchone():
+            return jsonify({"ok": False, "error": "Сначала приобрети это украшение в зимнем магазине.", "state": make_state(row, conn)}), 409
         ensure_public_profile(conn, player_id)
-        conn.execute("UPDATE player_profiles SET avatar = ?, frame = ?, updated_at = ? WHERE player_id = ?", (avatar, frame, time.time(), player_id))
+        conn.execute("UPDATE player_profiles SET avatar = ?, frame = ?, equipped_cosmetic = ?, updated_at = ? WHERE player_id = ?", (avatar, frame, cosmetic, time.time(), player_id))
         updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
         result = make_state(updated, conn)
     return jsonify({"ok": True, "state": result})
