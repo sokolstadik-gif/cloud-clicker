@@ -10,7 +10,7 @@
   <title>Cloud Clicker</title>
   <link rel="manifest" href="/static/manifest.json">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='7') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='winter.css', v='10') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='winter.css', v='11') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -74,38 +74,53 @@
 
           <button class="cloud-button" id="tapBtn" type="button" aria-label="Нажми на облако, чтобы заработать монеты">
             <span class="tap-ring"></span>
-            <svg class="cloud-art" viewBox="0 0 240 170" role="img" aria-label="Красивое сияющее облако для нажатий">
+            <svg class="cloud-art" viewBox="0 0 240 170" role="img" aria-label="Пушистое улыбающееся облачко в объёмной новогодней шапочке">
               <defs>
-                <linearGradient id="cloudGradient" x1="0" y1="0" x2=".25" y2="1">
-                  <stop offset="0" stop-color="#ffffff"/><stop offset=".28" stop-color="#f4fcff"/><stop offset=".66" stop-color="#c8eaff"/><stop offset="1" stop-color="#78b9e7"/>
+                <linearGradient id="cloudGradient" x1=".18" y1="0" x2=".72" y2="1">
+                  <stop offset="0" stop-color="#fff"/><stop offset=".24" stop-color="#f7fdff"/><stop offset=".58" stop-color="#d7f1ff"/><stop offset=".84" stop-color="#9ed5f4"/><stop offset="1" stop-color="#69addb"/>
                 </linearGradient>
-                <linearGradient id="cloudLower" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d7f0ff" stop-opacity="0"/><stop offset="1" stop-color="#438fc4" stop-opacity=".58"/></linearGradient>
-                <linearGradient id="cloudHighlight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".98"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
-                <radialGradient id="cloudPearl" cx=".3" cy=".12" r=".8"><stop offset="0" stop-color="#ffffff" stop-opacity=".95"/><stop offset="1" stop-color="#a8dcfa" stop-opacity="0"/></radialGradient>
-                <filter id="cloudShadow" x="-30%" y="-35%" width="160%" height="185%"><feGaussianBlur in="SourceAlpha" stdDeviation="7"/><feOffset dy="9"/><feComponentTransfer><feFuncA type="linear" slope=".3"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-                <filter id="cloudGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5"/></filter>
-                <clipPath id="cloudClip"><path d="M54 137C27 137 10 119 10 94c0-23 17-42 41-44C57 25 79 9 105 9c29 0 52 19 59 46 7-3 14-4 22-2 25 4 43 24 43 49 0 21-16 35-41 35H54Z"/></clipPath>
+                <linearGradient id="cloudSide" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b5e4ff" stop-opacity="0"/><stop offset="1" stop-color="#438fc4" stop-opacity=".62"/></linearGradient>
+                <linearGradient id="hatRed" x1=".15" y1="0" x2=".82" y2="1"><stop offset="0" stop-color="#ff8990"/><stop offset=".32" stop-color="#f34d5d"/><stop offset=".72" stop-color="#d92f49"/><stop offset="1" stop-color="#a91f3b"/></linearGradient>
+                <linearGradient id="hatFur" x1="0" y1="0" x2=".2" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".55" stop-color="#f4fbff"/><stop offset="1" stop-color="#bfd9e8"/></linearGradient>
+                <radialGradient id="pearl" cx=".3" cy=".12" r=".85"><stop offset="0" stop-color="#fff" stop-opacity=".98"/><stop offset="1" stop-color="#a6ddfb" stop-opacity="0"/></radialGradient>
+                <filter id="cloudShadow" x="-30%" y="-35%" width="160%" height="190%"><feGaussianBlur in="SourceAlpha" stdDeviation="6"/><feOffset dy="8"/><feComponentTransfer><feFuncA type="linear" slope=".3"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5"/></filter>
+                <filter id="hatShadow" x="-30%" y="-30%" width="160%" height="170%"><feGaussianBlur in="SourceAlpha" stdDeviation="2.2"/><feOffset dy="3"/><feComponentTransfer><feFuncA type="linear" slope=".3"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                <clipPath id="cloudClip"><path d="M48 143C22 143 7 126 7 103c0-21 15-38 37-42C46 35 68 17 96 17c23 0 41 12 51 31 8-7 18-10 29-8 25 3 47 23 47 51 0 28-20 52-50 52H48Z"/></clipPath>
               </defs>
-              <ellipse cx="123" cy="139" rx="78" ry="10" fill="#79c8f4" opacity=".25" filter="url(#cloudGlow)"/>
-              <path d="M54 137C27 137 10 119 10 94c0-23 17-42 41-44C57 25 79 9 105 9c29 0 52 19 59 46 7-3 14-4 22-2 25 4 43 24 43 49 0 21-16 35-41 35H54Z" fill="url(#cloudGradient)" filter="url(#cloudShadow)"/>
+              <ellipse cx="120" cy="147" rx="77" ry="9" fill="#75c9f5" opacity=".28" filter="url(#softGlow)"/>
+              <path d="M48 143C22 143 7 126 7 103c0-21 15-38 37-42C46 35 68 17 96 17c23 0 41 12 51 31 8-7 18-10 29-8 25 3 47 23 47 51 0 28-20 52-50 52H48Z" fill="url(#cloudGradient)" filter="url(#cloudShadow)"/>
               <g clip-path="url(#cloudClip)">
-                <rect x="8" y="8" width="224" height="132" fill="url(#cloudPearl)"/>
-                <path d="M6 91c28-17 48-14 70-3 22 11 41 10 61-1 31-17 62-8 96 8v55H6Z" fill="url(#cloudLower)"/>
-                <path d="M36 58c8-24 29-39 56-39 20 0 37 8 48 23-24-12-48-6-63 14-13-5-26-4-41 2Z" fill="url(#cloudHighlight)"/>
-                <path d="M22 88c4-17 15-27 30-31" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".72"/>
-                <path d="M76 24c18-8 38-5 51 5" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".6"/>
-                <path d="M48 119c23 11 49 12 69 3" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".34"/>
-                <circle cx="171" cy="77" r="28" fill="#fff" opacity=".12"/>
+                <rect x="6" y="15" width="220" height="132" fill="url(#pearl)"/>
+                <path d="M4 103c29-17 49-14 72-3 23 11 44 11 65-1 29-16 58-8 85 7v48H4Z" fill="url(#cloudSide)"/>
+                <path d="M28 81c2-23 18-42 39-49 18-7 40-3 53 9-25-8-46 0-57 22-14-4-25 2-35 18Z" fill="#fff" opacity=".55"/>
+                <path d="M73 31c17-9 36-8 51 2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".72"/>
+                <path d="M18 105c4 19 18 29 37 30" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".35"/>
+                <path d="M159 55c12-8 25-7 36 1" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".58"/>
+                <circle cx="174" cy="91" r="23" fill="#fff" opacity=".1"/>
+                <path d="M54 128c17 8 34 10 49 7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".3"/>
               </g>
-              <path d="M194 15l4 10 10 4-10 4-4 10-4-10-10-4 10-4 4-10Z" fill="#e5f8ff" stroke="#9bdcff" stroke-width="1.5"/>
-              <path d="m28 44 3 7 7 3-7 3-3 7-3-7-7-3 7-3 3-7Z" fill="#c8edff"/>
-              <circle cx="213" cy="105" r="3" fill="#fff" opacity=".9"/><circle cx="30" cy="112" r="2.5" fill="#fff" opacity=".8"/>
-              <g class="santa-hat" transform="translate(87 3) rotate(-8 30 18)" aria-hidden="true">
-                <path d="M4 27C9 11 20 2 34 2c14 0 25 10 29 26H4Z" fill="#e34d59" stroke="#a92f3b" stroke-width="2"/>
-                <path d="M8 22c15 6 39 6 57 0l4 9c-19 8-47 8-66 0l5-9Z" fill="#fffdf7" stroke="#d8eaf3" stroke-width="2"/>
-                <path d="M18 17c8-9 17-13 27-12" fill="none" stroke="#ff9a9e" stroke-width="3" stroke-linecap="round" opacity=".8"/>
-                <circle cx="64" cy="6" r="8" fill="#fffdf7" stroke="#d8eaf3" stroke-width="2"/>
+              <path d="M80 100c4-5 11-7 17-4" fill="none" stroke="#477da3" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+              <path d="M143 96c5-4 12-4 17 1" fill="none" stroke="#477da3" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+              <ellipse cx="85" cy="108" rx="10" ry="5.5" fill="#f58eaa" opacity=".48"/>
+              <ellipse cx="157" cy="108" rx="10" ry="5.5" fill="#f58eaa" opacity=".48"/>
+              <ellipse cx="93" cy="99" rx="4.2" ry="6.2" fill="#244c69"/>
+              <ellipse cx="149" cy="99" rx="4.2" ry="6.2" fill="#244c69"/>
+              <circle cx="94.5" cy="96.5" r="1.6" fill="#fff"/>
+              <circle cx="150.5" cy="96.5" r="1.6" fill="#fff"/>
+              <path d="M115 108c3 4 7 4 10 0" fill="none" stroke="#477da3" stroke-width="2.4" stroke-linecap="round"/>
+              <path d="M105 115c5 5 14 7 21 4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+              <g class="santa-hat" filter="url(#hatShadow)" transform="translate(78 -1) rotate(-10 43 25)" aria-hidden="true">
+                <path d="M8 43C15 18 34 2 56 3c15 1 28 12 33 31-20 13-55 17-81 9Z" fill="url(#hatRed)" stroke="#a92f43" stroke-width="2"/>
+                <path d="M22 26c10-12 23-18 38-17" fill="none" stroke="#ffb0b2" stroke-width="4" stroke-linecap="round" opacity=".72"/>
+                <path d="M10 36c23 8 53 7 79-3l5 12c-25 13-62 15-88 4l4-13Z" fill="url(#hatFur)" stroke="#c5dce9" stroke-width="2"/>
+                <path d="M18 42c18 5 43 5 62-2" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".9"/>
+                <circle cx="89" cy="12" r="11" fill="url(#hatFur)" stroke="#d4e7f1" stroke-width="2"/>
+                <circle cx="86" cy="8" r="3" fill="#fff" opacity=".9"/>
               </g>
+              <path d="M196 67l3 8 8 3-8 3-3 8-3-8-8-3 8-3 3-8Z" fill="#e5f8ff" stroke="#9bdcff" stroke-width="1.3"/>
+              <path d="m30 75 2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5 2.5-6Z" fill="#c8edff"/>
+              <circle cx="207" cy="120" r="2.8" fill="#fff" opacity=".9"/><circle cx="28" cy="124" r="2.2" fill="#fff" opacity=".8"/>
             </svg>
             <span class="equipped-cosmetic" id="equippedCosmetic" aria-hidden="true"></span>
             <span class="tap-hint">CLICK</span>
