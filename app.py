@@ -345,6 +345,13 @@ def init_db() -> None:
             claimed_at REAL NOT NULL,
             PRIMARY KEY (player_id, day_number)
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_achievement_claims (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            achievement_id TEXT NOT NULL,
+            reward INTEGER NOT NULL,
+            claimed_at REAL NOT NULL,
+            PRIMARY KEY (player_id, achievement_id)
+        )""")
         conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
 
@@ -709,10 +716,48 @@ def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
     }
 
 
+ACHIEVEMENTS = [
+    {"id": "taps_1000", "title": "Облачный кликер", "description": "Сделай 1 000 нажатий", "metric": "taps", "target": 1000, "reward": 500, "badge": "☁"},
+    {"id": "earned_100k", "title": "Копилка растёт", "description": "Заработай 100 000 монет за всё время", "metric": "earned", "target": 100000, "reward": 1000, "badge": "💰"},
+    {"id": "upgrades_50", "title": "Инженер облаков", "description": "Купи 50 уровней улучшений", "metric": "upgrades", "target": 50, "reward": 2500, "badge": "🛠️"},
+    {"id": "era_2", "title": "Космический путь", "description": "Открой эпоху Космических облаков", "metric": "era", "target": 2, "reward": 5000, "badge": "🚀"},
+    {"id": "era_3", "title": "Небесный правитель", "description": "Открой Небесную империю", "metric": "era", "target": 3, "reward": 10000, "badge": "👑"},
+    {"id": "era_4", "title": "За гранью небес", "description": "Достигни Божественного измерения", "metric": "era", "target": 4, "reward": 20000, "badge": "✨"},
+]
+
+
+def achievement_state(conn: sqlite3.Connection, row: sqlite3.Row) -> list[dict[str, Any]]:
+    metrics = {
+        "taps": int(row["total_taps"]),
+        "earned": int(row["total_earned"]),
+        "upgrades": sum(int(row[column]) for column in LEVEL_COLUMNS.values()),
+        "era": int(row["active_era"]),
+    }
+    claimed = {
+        item["achievement_id"]: item
+        for item in conn.execute(
+            "SELECT achievement_id, reward FROM player_achievement_claims WHERE player_id = ?",
+            (row["id"],),
+        ).fetchall()
+    }
+    result = []
+    for item in ACHIEVEMENTS:
+        progress = min(item["target"], metrics[item["metric"]])
+        is_claimed = item["id"] in claimed
+        result.append({
+            **item, "progress": progress,
+            "percent": min(100, int(progress * 100 / item["target"])),
+            "unlocked": progress >= item["target"],
+            "claimed": is_claimed,
+        })
+    return result
+
+
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
     era_overview = get_era_overview(conn, row) if conn is not None else None
     winter_state = winter_event_state(conn, row) if conn is not None else None
+    achievements = achievement_state(conn, row) if conn is not None else []
     upgrades = []
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
@@ -784,6 +829,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
         "nickname": row["nickname"],
         "era": era_overview,
         "winter_event": winter_state,
+        "achievements": achievements,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -851,6 +897,37 @@ def state():
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/achievement/claim")
+def claim_achievement():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    payload = request.get_json(silent=True) or {}
+    achievement_id = str(payload.get("id", ""))
+    item = next((entry for entry in ACHIEVEMENTS if entry["id"] == achievement_id), None)
+    if item is None:
+        return api_error("Такого достижения нет.")
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        achievements = achievement_state(conn, row)
+        status = next(entry for entry in achievements if entry["id"] == achievement_id)
+        if status["claimed"]:
+            return jsonify({"ok": False, "error": "Награда за достижение уже получена.", "state": make_state(row, conn)}), 409
+        if not status["unlocked"]:
+            return jsonify({"ok": False, "error": "Достижение ещё не открыто.", "state": make_state(row, conn)}), 409
+        reward = int(item["reward"])
+        conn.execute(
+            "INSERT INTO player_achievement_claims (player_id, achievement_id, reward, claimed_at) VALUES (?, ?, ?, ?)",
+            (player_id, achievement_id, reward, time.time()),
+        )
+        conn.execute("UPDATE players SET coins = coins + ?, total_earned = total_earned + ? WHERE id = ?", (reward, reward, player_id))
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
 
 
 @app.post("/api/winter/calendar/claim")
