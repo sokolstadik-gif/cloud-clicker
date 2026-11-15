@@ -97,6 +97,90 @@ function renderReferrals(state) {
   $('referralRewards').textContent = fmt.format(data.rewards);
 }
 
+function renderGifts(state) {
+  const data = state.gifts;
+  if (!data) return;
+  $('giftDailyLimit').textContent = `${fmt.format(data.sent_today)} / ${fmt.format(data.daily_limit)} сегодня`;
+  $('giftActiveCount').textContent = `Активно ${data.active_boosts} / 2 буста`;
+  const select = $('giftSelect');
+  if (select.options.length === 0) {
+    data.catalog.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.code;
+      option.textContent = `${item.icon} ${item.title} · ${item.rarity === 'common' ? 'обычный' : item.rarity === 'rare' ? 'редкий' : item.rarity === 'epic' ? 'эпический' : 'легендарный'}`;
+      select.append(option);
+    });
+  }
+  $('giftSendBtn').disabled = data.remaining_today <= 0;
+  const root = $('giftInventory');
+  root.replaceChildren();
+  if (!data.inventory.length) {
+    const empty = document.createElement('div');
+    empty.className = 'loading-card panel';
+    empty.textContent = 'Пока подарков нет. Попроси друга отправить тебе что-нибудь праздничное!';
+    root.append(empty);
+    return;
+  }
+  data.inventory.forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `gift-card panel rarity-${item.rarity}`;
+    const icon = document.createElement('div');
+    icon.className = 'gift-card-icon';
+    icon.textContent = item.icon;
+    const body = document.createElement('div');
+    body.className = 'gift-card-body';
+    const title = document.createElement('h3');
+    title.textContent = item.title;
+    const description = document.createElement('p');
+    description.textContent = item.description;
+    const sender = document.createElement('small');
+    sender.textContent = `От игрока: ${item.sender}${item.note ? ' · ' + item.note : ''}`;
+    const status = document.createElement('small');
+    const statusNames = { inventory: 'В инвентаре', active: `Активен · ${Math.ceil(item.remaining_seconds / 60)} мин.`, expired: 'Время действия закончилось', collected: 'В коллекции' };
+    status.textContent = statusNames[item.status] || item.status;
+    body.append(title, description, sender, status);
+    const action = document.createElement('div');
+    if (item.can_activate) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary-button';
+      button.textContent = 'Активировать';
+      button.disabled = data.active_boosts >= 2;
+      button.addEventListener('click', () => activateGift(item.id));
+      action.append(button);
+    }
+    card.append(icon, body, action);
+    root.append(card);
+  });
+}
+
+async function sendGift(event) {
+  event.preventDefault();
+  const recipient_code = $('giftRecipientCode').value.trim();
+  const gift_code = $('giftSelect').value;
+  const note = $('giftNote').value.trim();
+  $('giftSendBtn').disabled = true;
+  try {
+    const data = await api('/api/gifts/send', 'POST', { recipient_code, gift_code, note });
+    if (data.state) renderState(data.state);
+    if (data.ok) {
+      $('giftRecipientCode').value = '';
+      $('giftNote').value = '';
+      showToast(data.message || 'Подарок отправлен!');
+    } else showToast(data.error || 'Не удалось отправить подарок.');
+  } catch (error) { showToast(error.message); }
+  finally { $('giftSendBtn').disabled = false; }
+}
+
+async function activateGift(gift_id) {
+  try {
+    const data = await api('/api/gifts/activate', 'POST', { gift_id });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(data.message || 'Подарочный буст активирован!');
+    else showToast(data.error || 'Не удалось активировать подарок.');
+  } catch (error) { showToast(error.message); }
+}
+
 function renderWinterEvent(state) {
   const event = state.winter_event;
   if (!event) return;
@@ -146,6 +230,7 @@ function renderState(state) {
   currentState = state;
   renderEra(state);
   renderWinterEvent(state);
+  renderGifts(state);
   renderReferrals(state);
   $('coins').textContent = fmt.format(state.coins);
   $('tapPower').textContent = `+${fmt.format(state.tap_power)}`;
@@ -684,17 +769,6 @@ async function saveNickname() {
 }
 
 function activateTab(name) {
-  $('eraTransitionBtn').addEventListener('click', transitionEra);
-$('winterClaimBtn').addEventListener('click', claimWinterCalendar);
-$('copyReferralBtn').addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText($('referralLink').value);
-    showToast('Реферальная ссылка скопирована!');
-  } catch {
-    $('referralLink').select();
-    showToast('Выделил ссылку — скопируй её вручную.');
-  }
-});
 document.querySelectorAll('.tab-button').forEach((button) => {
     const active = button.dataset.tab === name;
     button.classList.toggle('active', active);
@@ -728,6 +802,18 @@ $('tapBtn').addEventListener('click', (event) => {
   floatCoin(event.clientX || window.innerWidth / 2, event.clientY || window.innerHeight / 2, `+${currentState.tap_power * multiplier} CC`);
   drainClicks();
 });
+$('eraTransitionBtn').addEventListener('click', transitionEra);
+$('winterClaimBtn').addEventListener('click', claimWinterCalendar);
+$('copyReferralBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('referralLink').value);
+    showToast('Реферальная ссылка скопирована!');
+  } catch {
+    $('referralLink').select();
+    showToast('Выделил ссылку — скопируй её вручную.');
+  }
+});
+$('giftSendForm').addEventListener('submit', sendGift);
 $('dailyBtn').addEventListener('click', claimDaily);
 $('saveNameBtn').addEventListener('click', saveNickname);
 $('nicknameInput').addEventListener('keydown', (event) => {
