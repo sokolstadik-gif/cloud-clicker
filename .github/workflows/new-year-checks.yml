@@ -71,7 +71,25 @@ jobs:
           assert achievement.get_json()["reward"] == 500
           duplicate_achievement = client.post("/api/achievement/claim", json={"id": "taps_1000"}, headers={"X-CSRF-Token": csrf})
           assert duplicate_achievement.status_code == 409
+          with app.db_connection() as conn:
+              app.ensure_player(conn, "f" * 32)
+              for gift_id, effect in [("1" * 32, "income_10"), ("2" * 32, "tap_plus_5"), ("3" * 32, "tap_double")]:
+                  conn.execute(
+                      """INSERT INTO player_gifts
+                         (id, sender_id, receiver_id, gift_code, kind, rarity, effect, duration_seconds, created_at, status)
+                         VALUES (?, ?, ?, ?, 'boost', 'common', ?, 3600, 0, 'inventory')""",
+                      (gift_id, "f" * 32, player_id, "warm_glow", effect),
+                  )
+          for gift_id in ["1" * 32, "2" * 32]:
+              activated = client.post("/api/gifts/activate", json={"gift_id": gift_id}, headers={"X-CSRF-Token": csrf})
+              assert activated.status_code == 200, activated.get_data(as_text=True)
+          third_boost = client.post("/api/gifts/activate", json={"gift_id": "3" * 32}, headers={"X-CSRF-Token": csrf})
+          assert third_boost.status_code == 409
+          assert third_boost.get_json()["state"]["gifts"]["active_boosts"] == 2
+          tap = client.post("/api/click", json={"count": 1}, headers={"X-CSRF-Token": csrf})
+          assert tap.status_code == 200, tap.get_data(as_text=True)
+          assert tap.get_json()["earned"] == 7
           blocked = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
           assert blocked.status_code == 409
-          print("SQLite migration, archive preservation, and era transition: OK")
+          print("SQLite migration, era archive, winter calendar, achievements, and gift boost rules: OK")
           PY
