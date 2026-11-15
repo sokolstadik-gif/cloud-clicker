@@ -5,7 +5,7 @@ if (tgApp) {
   document.body.classList.add('telegram-mini-app');
   tgApp.ready();
   tgApp.expand();
-  try { tgApp.setHeaderColor('#080b10'); tgApp.setBackgroundColor('#080b10'); } catch (_) {}
+  try { tgApp.setHeaderColor('#10231f'); tgApp.setBackgroundColor('#10231f'); } catch (_) {}
 }
 const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const $ = (id) => document.getElementById(id);
