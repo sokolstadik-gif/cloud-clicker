@@ -191,3 +191,21 @@ body::before {
   .gift-card-icon { width:36px; height:36px; }
   .gift-card > div:last-child { grid-column:2; }
 }
+
+
+/* Winter ticket shop */
+.winter-shop-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.winter-shop-item { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:16px; }
+.winter-shop-icon { display:grid; place-items:center; width:48px; height:48px; border-radius:15px; background:rgba(139,191,224,.13); font-size:27px; }
+.winter-shop-item h3 { margin:0; color:#d9efff; font-size:13px; }
+.winter-shop-item p { margin:0; color:#91a9bc; font-size:10px; line-height:1.5; min-height:30px; }
+.winter-shop-item small { color:#8299ac; font-size:9px; }
+.winter-shop-item button { width:100%; min-height:38px; margin-top:auto; font-size:10px; }
+.winter-shop-item.is-owned { border-color:rgba(115,205,168,.38); background:rgba(39,100,78,.1); }
+@media(max-width:520px) {
+  .winter-shop-grid { grid-template-columns:1fr; }
+  .winter-shop-item { display:grid; grid-template-columns:46px minmax(0,1fr); align-items:center; }
+  .winter-shop-item .winter-shop-icon { grid-row:span 3; }
+  .winter-shop-item p { min-height:0; }
+  .winter-shop-item button { grid-column:1 / -1; }
+}
