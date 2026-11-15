@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask, g, jsonify, render_template, request, session
+
+from new_year_rules import ERA_NAMES, era_unlock_progress
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -293,10 +295,38 @@ def init_db() -> None:
             "radar_level": "INTEGER NOT NULL DEFAULT 0",
             "network_level": "INTEGER NOT NULL DEFAULT 0",
             "turbo_until": "REAL NOT NULL DEFAULT 0",
+            "active_era": "INTEGER NOT NULL DEFAULT 1",
         }
         for column, definition in migrations.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_era_progress (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            era INTEGER NOT NULL,
+            balance INTEGER NOT NULL DEFAULT 0,
+            earned INTEGER NOT NULL DEFAULT 0,
+            taps INTEGER NOT NULL DEFAULT 0,
+            upgrade_purchases INTEGER NOT NULL DEFAULT 0,
+            levels_json TEXT NOT NULL DEFAULT '{}',
+            last_balance INTEGER NOT NULL DEFAULT 0,
+            last_taps INTEGER NOT NULL DEFAULT 0,
+            last_upgrade_levels INTEGER NOT NULL DEFAULT 0,
+            opened_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (player_id, era)
+        )""")
+        for player in conn.execute("SELECT * FROM players").fetchall():
+            levels = {key: int(player[column]) for key, column in LEVEL_COLUMNS.items()}
+            conn.execute(
+                """INSERT OR IGNORE INTO player_era_progress
+                   (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                    last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+                   VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (player["id"], int(player["coins"]), int(player["total_earned"]),
+                 int(player["total_taps"]), sum(levels.values()), json.dumps(levels),
+                 int(player["coins"]), int(player["total_taps"]), sum(levels.values()),
+                 float(player["created_at"]), time.time()),
+            )
         conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
 
@@ -539,6 +569,76 @@ def upgrade_cost(upgrade_id: str, level: int) -> int:
     return int(round(item["base_cost"] * (item["growth"] ** level)))
 
 
+def sync_era_progress(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    """Accumulate server-observed per-era deltas without altering lifetime totals."""
+    era = int(row["active_era"])
+    levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
+    era_overview = get_era_overview(conn, row) if conn is not None else None
+    level_total = sum(levels.values())
+    saved = conn.execute(
+        "SELECT * FROM player_era_progress WHERE player_id = ? AND era = ?",
+        (row["id"], era),
+    ).fetchone()
+    now = time.time()
+    if saved is None:
+        conn.execute(
+            """INSERT INTO player_era_progress
+               (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+               VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?)""",
+            (row["id"], era, int(row["coins"]), json.dumps(levels), int(row["coins"]),
+             int(row["total_taps"]), level_total, now, now),
+        )
+        saved = conn.execute(
+            "SELECT * FROM player_era_progress WHERE player_id = ? AND era = ?",
+            (row["id"], era),
+        ).fetchone()
+    balance = int(row["coins"])
+    taps = int(row["total_taps"])
+    earned = int(saved["earned"]) + max(0, balance - int(saved["last_balance"]))
+    era_taps = int(saved["taps"]) + max(0, taps - int(saved["last_taps"]))
+    purchases = int(saved["upgrade_purchases"]) + max(0, level_total - int(saved["last_upgrade_levels"]))
+    conn.execute(
+        """UPDATE player_era_progress SET balance = ?, earned = ?, taps = ?,
+           upgrade_purchases = ?, levels_json = ?, last_balance = ?, last_taps = ?,
+           last_upgrade_levels = ?, updated_at = ? WHERE player_id = ? AND era = ?""",
+        (balance, earned, era_taps, purchases, json.dumps(levels), balance, taps,
+         level_total, now, row["id"], era),
+    )
+    return {"era": era, "balance": balance, "earned": earned, "taps": era_taps,
+            "upgrade_purchases": purchases, "levels": levels}
+
+
+def get_era_overview(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    current = sync_era_progress(conn, row)
+    saved = {}
+    for item in conn.execute(
+        "SELECT era, earned, taps, upgrade_purchases FROM player_era_progress WHERE player_id = ?",
+        (row["id"],),
+    ).fetchall():
+        saved[int(item["era"])] = item
+    unlock = era_unlock_progress(
+        current["era"],
+        era1_taps=int(saved.get(1)["taps"]) if saved.get(1) else 0,
+        era2_upgrade_purchases=int(saved.get(2)["upgrade_purchases"]) if saved.get(2) else 0,
+        era2_earned=int(saved.get(2)["earned"]) if saved.get(2) else 0,
+        era3_earned=int(saved.get(3)["earned"]) if saved.get(3) else 0,
+    )
+    return {
+        "current": current["era"],
+        "name": ERA_NAMES[current["era"]][0],
+        "currency": ERA_NAMES[current["era"]][1],
+        "progress": unlock,
+        "archive": [
+            {"era": era, "name": ERA_NAMES[era][0], "currency": ERA_NAMES[era][1],
+             "earned": int(saved[era]["earned"]), "taps": int(saved[era]["taps"]),
+             "upgrade_purchases": int(saved[era]["upgrade_purchases"]),
+             "completed": era < current["era"]}
+            for era in sorted(saved)
+        ],
+    }
+
+
 def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None = None) -> sqlite3.Row:
     """Apply passive income and energy regeneration before each game action."""
     now = now if now is not None else time.time()
@@ -629,6 +729,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
 
     return {
         "nickname": row["nickname"],
+        "era": era_overview,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -696,6 +797,42 @@ def state():
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/era/transition")
+def transition_era():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        row = advance_player(conn, row)
+        overview = get_era_overview(conn, row)
+        requirement = overview["progress"]
+        if requirement.get("next_era") is None:
+            return jsonify({"ok": False, "error": "Ты уже достиг последней эпохи.", "state": make_state(row, conn)}), 409
+        if not requirement.get("unlocked"):
+            return jsonify({"ok": False, "error": "Условие перехода ещё не выполнено.", "state": make_state(row, conn)}), 409
+        next_era = int(requirement["next_era"])
+        now = time.time()
+        conn.execute(
+            """UPDATE players SET active_era = ?, coins = 0,
+               tap_level = 0, auto_level = 0, energy_level = 0, lab_level = 0,
+               radar_level = 0, network_level = 0, energy = ?, passive_fraction = 0,
+               turbo_until = 0, last_energy_at = ?, last_active_at = ? WHERE id = ?""",
+            (next_era, START_ENERGY, now, now, player_id),
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO player_era_progress
+               (player_id, era, balance, earned, taps, upgrade_purchases, levels_json,
+                last_balance, last_taps, last_upgrade_levels, opened_at, updated_at)
+               VALUES (?, ?, 0, 0, 0, 0, '{}', 0, ?, 0, ?, ?)""",
+            (player_id, next_era, int(row["total_taps"]), now, now),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "era_changed": True, "state": result})
 
 
 @app.post("/api/click")
