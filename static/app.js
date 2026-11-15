@@ -760,7 +760,7 @@ async function buyStarPackage(packageId) {
     if (tgApp?.openInvoice) {
       tgApp.openInvoice(data.invoice_url, (status) => {
         if (status === 'paid') {
-          showToast('Оплата принята. Начисляем Cloudcoin…');
+          showToast(`Оплата принята. Начисляем ${currentState?.era?.currency || 'валюту текущей эпохи'}…`);
           setTimeout(refreshState, 1200);
           setTimeout(refreshState, 3500);
         } else if (status === 'failed') {
