@@ -48,8 +48,48 @@ function floatCoin(x, y, text = '+1 CC') {
   setTimeout(() => node.remove(), 750);
 }
 
+function renderEra(state) {
+  const era = state.era;
+  if (!era) return;
+  $('eraPanelTitle').textContent = era.name;
+  $('eraCurrency').textContent = `Валюта эпохи: ${era.currency}`;
+  $('eraNumber').textContent = `ЭПОХА ${era.current} / 4`;
+  $('eraName').textContent = era.currency;
+  $('currencyLabel').textContent = era.currency.toUpperCase();
+  const progress = era.progress || {};
+  const names = {
+    taps: 'Нажатия только в первой эпохе',
+    upgrade_purchases: 'Покупки улучшений только во второй эпохе',
+    coins_earned_era2_and_era3: 'Монеты, заработанные во второй и третьей эпохах'
+  };
+  if (progress.next_era) {
+    $('eraRequirement').textContent = `Для эпохи ${progress.next_era}: ${names[progress.metric] || 'условие перехода'}`;
+    $('eraProgressText').textContent = `${fmt.format(progress.progress)} / ${fmt.format(progress.target)}`;
+    $('eraProgressFill').style.width = `${Math.min(100, progress.target ? progress.progress / progress.target * 100 : 0)}%`;
+    $('eraTransitionBtn').hidden = false;
+    $('eraTransitionBtn').disabled = !progress.unlocked;
+    $('eraTransitionBtn').textContent = progress.unlocked
+      ? `Открыть эпоху ${progress.next_era} · переход необратим`
+      : `Осталось: ${fmt.format(progress.remaining)}`;
+  } else {
+    $('eraRequirement').textContent = 'Ты достиг последней эпохи — Божественного измерения.';
+    $('eraProgressText').textContent = 'МАКСИМАЛЬНАЯ ЭПОХА';
+    $('eraProgressFill').style.width = '100%';
+    $('eraTransitionBtn').hidden = true;
+  }
+  const archive = $('eraArchive');
+  archive.replaceChildren();
+  (era.archive || []).forEach((item) => {
+    const entry = document.createElement('span');
+    entry.className = 'era-archive-item';
+    entry.textContent = `${item.name}: ${fmt.format(item.earned)} ${item.currency} · ${fmt.format(item.taps)} тапов`;
+    archive.append(entry);
+  });
+}
+
 function renderState(state) {
   currentState = state;
+  renderEra(state);
   $('coins').textContent = fmt.format(state.coins);
   $('tapPower').textContent = `+${fmt.format(state.tap_power)}`;
   $('passiveIncome').textContent = `+${fmt.format(state.passive_per_sec)}`;
@@ -412,6 +452,27 @@ async function drainClicks() {
   }
 }
 
+async function transitionEra() {
+  if (!currentState?.era?.progress?.unlocked) return;
+  const confirmed = window.confirm('Переход необратим. Баланс и улучшения текущей эпохи сохранятся в архиве, а новая эпоха начнётся с нуля. Перейти?');
+  if (!confirmed) return;
+  $('eraTransitionBtn').disabled = true;
+  try {
+    const data = await api('/api/era/transition', 'POST', {});
+    if (data.state) renderState(data.state);
+    if (data.ok) {
+      showToast(`Открыта эпоха: ${data.state.era.name}!`);
+      refreshLeaderboard();
+    } else {
+      showToast(data.error || 'Не удалось перейти в новую эпоху.');
+    }
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    if (currentState?.era?.progress?.unlocked) $('eraTransitionBtn').disabled = false;
+  }
+}
+
 async function buyUpgrade(id) {
   try {
     const data = await api('/api/upgrade', 'POST', { id });
@@ -507,7 +568,8 @@ async function saveNickname() {
 }
 
 function activateTab(name) {
-  document.querySelectorAll('.tab-button').forEach((button) => {
+  $('eraTransitionBtn').addEventListener('click', transitionEra);
+document.querySelectorAll('.tab-button').forEach((button) => {
     const active = button.dataset.tab === name;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', active ? 'true' : 'false');
