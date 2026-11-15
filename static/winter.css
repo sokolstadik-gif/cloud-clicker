@@ -151,3 +151,19 @@ body::before {
   .winter-day span { font-size:8px; }
   .winter-day small { font-size:7px; }
 }
+
+
+/* Referral program */
+.referral-panel { padding:18px; margin-top:18px; }
+.referral-panel h2 { margin:3px 0; font-size:16px; }
+.referral-link-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-top:13px; }
+.referral-link-row input { min-width:0; height:40px; padding:0 11px; border:1px solid var(--line); border-radius:10px; background:#0a111a; color:#cdeaff; font-size:10px; }
+.referral-link-row button { min-height:40px; }
+.referral-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-top:13px; }
+.referral-stats > div { display:flex; flex-direction:column; gap:5px; padding:11px; border:1px solid rgba(152,197,224,.13); border-radius:11px; background:rgba(9,16,25,.55); }
+.referral-stats span { color:#8da5b8; font-size:9px; }
+.referral-stats b { color:#d8efff; font-size:17px; }
+@media(max-width:520px) {
+  .referral-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .referral-link-row { grid-template-columns:1fr; }
+}
