@@ -264,3 +264,9 @@ body::before {
 .creator-avatar.profile-frame-cosmic { border:2px solid #b99cff; box-shadow:0 0 18px rgba(185,156,255,.32); }
 .creator-avatar.profile-frame-royal { border:2px solid #f0cf8a; box-shadow:0 0 18px rgba(240,207,138,.3); }
 .creator-avatar.profile-frame-divine { border:2px solid #fff0b4; box-shadow:0 0 24px rgba(255,240,180,.45); }
+
+
+.gift-sent-history { display:grid; gap:7px; }
+.gift-sent-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; }
+.gift-sent-row span { color:#c7e0f2; font-size:10px; }
+.gift-sent-row small { color:#8ea7ba; font-size:9px; white-space:nowrap; }
