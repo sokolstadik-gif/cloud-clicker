@@ -221,7 +221,6 @@ function renderGifts(state) {
     empty.className = 'loading-card panel';
     empty.textContent = 'Пока подарков нет. Попроси друга отправить тебе что-нибудь праздничное!';
     root.append(empty);
-    return;
   }
   data.inventory.forEach((item) => {
     const card = document.createElement('article');
@@ -254,6 +253,25 @@ function renderGifts(state) {
     card.append(icon, body, action);
     root.append(card);
   });
+  const sentRoot = $('giftSentHistory');
+  sentRoot.replaceChildren();
+  if (!data.sent_history?.length) {
+    const empty = document.createElement('div');
+    empty.className = 'loading-card panel';
+    empty.textContent = 'Ты ещё не отправлял подарки.';
+    sentRoot.append(empty);
+  } else {
+    data.sent_history.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'gift-sent-row panel';
+      const text = document.createElement('span');
+      text.textContent = `${item.icon} ${item.title} → ${item.receiver}`;
+      const status = document.createElement('small');
+      status.textContent = item.status === 'collected' ? 'В коллекции' : item.status === 'active' ? 'Активирован' : item.status === 'expired' ? 'Истёк' : 'В инвентаре';
+      row.append(text, status);
+      sentRoot.append(row);
+    });
+  }
 }
 
 async function sendGift(event) {
