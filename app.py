@@ -933,7 +933,7 @@ def achievement_state(conn: sqlite3.Connection, row: sqlite3.Row) -> list[dict[s
     metrics = {
         "taps": int(row["total_taps"]),
         "earned": int(row["total_earned"]),
-        "upgrades": sum(int(row[column]) for column in LEVEL_COLUMNS.values()),
+        "upgrades": int(conn.execute("SELECT COALESCE(SUM(upgrade_purchases), 0) AS total FROM player_era_progress WHERE player_id = ?", (row["id"],)).fetchone()["total"]),
         "era": int(row["active_era"]),
     }
     claimed = {
