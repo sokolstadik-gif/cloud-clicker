@@ -1289,12 +1289,15 @@ def admin_max():
             )
         ensure_daily_quests(conn, player_id)
         conn.execute(
-            """UPDATE daily_quest_progress SET progress = (
-                 SELECT target FROM daily_quest_progress q2
-                 WHERE q2.player_id = daily_quest_progress.player_id
-                   AND q2.quest_date = daily_quest_progress.quest_date
-                   AND q2.quest_id = daily_quest_progress.quest_id
-               ), claimed = 1 WHERE player_id = ?""",
+            """UPDATE daily_quest_progress
+               SET progress = CASE quest_id
+                   WHEN 'tap_100' THEN 100
+                   WHEN 'upgrade_2' THEN 2
+                   WHEN 'daily_bonus' THEN 1
+                   ELSE progress
+               END,
+               claimed = 1
+               WHERE player_id = ?""",
             (player_id,),
         )
         row = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
