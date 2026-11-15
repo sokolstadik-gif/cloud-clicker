@@ -464,35 +464,51 @@ body::after {
 }
 
 
-/* Keep the section navigation fixed to the viewport instead of horizontally drifting. */
+/* Horizontal scrolling is confined to the tab rail; the app layout stays fixed. */
 .main-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
-  overflow: visible;
-  overscroll-behavior: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  contain: inline-size;
 }
-.tab-button {
-  min-width: 0;
-  width: 100%;
-  padding: 0 6px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+.main-tabs::-webkit-scrollbar { display: none; }
+.main-tabs .tab-button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 88px;
+  max-width: none;
+  padding: 0 12px;
+  white-space: nowrap;
+  overflow-wrap: normal;
   line-height: 1.2;
+  scroll-snap-align: start;
 }
 @media (max-width: 720px) {
   .main-tabs {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+    margin-right: 0;
+    padding-right: 6px;
   }
-  .tab-button {
+  .main-tabs .tab-button {
+    min-width: 88px;
     min-height: 42px;
     font-size: 9px;
-    padding: 0 4px;
+    padding: 0 11px;
   }
 }
 @media (max-width: 380px) {
   .main-tabs { gap: 5px; }
-  .tab-button { font-size: 8px; }
+  .main-tabs .tab-button { min-width: 82px; font-size: 8px; }
 }
