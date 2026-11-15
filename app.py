@@ -365,6 +365,23 @@ def init_db() -> None:
             created_at REAL NOT NULL,
             activated_at REAL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS player_gifts (
+            id TEXT PRIMARY KEY,
+            sender_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            receiver_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            gift_code TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            rarity TEXT NOT NULL,
+            effect TEXT,
+            duration_seconds INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            activated_at REAL,
+            expires_at REAL,
+            status TEXT NOT NULL DEFAULT 'inventory',
+            note TEXT NOT NULL DEFAULT ''
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_player_gifts_receiver ON player_gifts(receiver_id, status, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_player_gifts_sender_date ON player_gifts(sender_id, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_referrals_inviter ON referrals(inviter_id, status)")
         conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
@@ -682,10 +699,12 @@ def get_era_overview(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, An
 def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None = None) -> sqlite3.Row:
     """Apply passive income and energy regeneration before each game action."""
     now = now if now is not None else time.time()
+    gift_effects = active_gift_effects(conn, row["id"], now)
     energy_elapsed = max(0.0, min(now - float(row["last_energy_at"]), 24 * 60 * 60))
     energy = min(max_energy(row), float(row["energy"]) + energy_elapsed * energy_regen(row))
     active_elapsed = max(0.0, min(now - float(row["last_active_at"]), OFFLINE_CAP_SECONDS))
-    passive_total = active_elapsed * passive_income(row) + float(row["passive_fraction"])
+    passive_rate = passive_income(row) * (2 if gift_effects["passive_double"] else 1)
+    passive_total = active_elapsed * passive_rate + float(row["passive_fraction"])
     passive_added = int(passive_total)
     passive_fraction = passive_total - passive_added
     conn.execute(
@@ -726,6 +745,84 @@ def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
                 "SELECT day_number FROM winter_calendar_claims WHERE player_id = ? ORDER BY day_number",
                 (row["id"],),
             ).fetchall()
+        ],
+    }
+
+
+GIFT_CATALOG = {
+    "snowflake_charm": {"title": "Снежинка", "kind": "decor", "rarity": "common", "icon": "❄️", "description": "Памятный зимний сувенир"},
+    "cloud_bell": {"title": "Облачный колокольчик", "kind": "decor", "rarity": "rare", "icon": "🔔", "description": "Коллекционный праздничный декор"},
+    "golden_ornament": {"title": "Золотая игрушка", "kind": "decor", "rarity": "epic", "icon": "🌟", "description": "Редкое украшение облака"},
+    "winter_wings": {"title": "Крылья зимнего света", "kind": "decor", "rarity": "legendary", "icon": "🪽", "description": "Легендарный декоративный подарок"},
+    "warm_glow": {"title": "Тёплое сияние", "kind": "boost", "rarity": "common", "icon": "✨", "description": "+10% монет за тап на 1 час", "effect": "income_10", "duration": 3600},
+    "double_cloud": {"title": "Двойное облако", "kind": "boost", "rarity": "rare", "icon": "☁️", "description": "x2 монет за тап на 30 минут", "effect": "tap_double", "duration": 1800},
+    "tap_spark": {"title": "Искра силы", "kind": "boost", "rarity": "epic", "icon": "⚡", "description": "+5 к силе тапа на 1 час", "effect": "tap_plus_5", "duration": 3600},
+    "tailwind": {"title": "Попутный ветер", "kind": "boost", "rarity": "legendary", "icon": "🌬️", "description": "x2 пассивный доход на 1 час", "effect": "passive_double", "duration": 3600},
+}
+GIFT_DAILY_LIMITS = {1: 5, 2: 10, 3: 15, 4: 20}
+
+
+def active_gift_effects(conn: sqlite3.Connection, player_id: str, now: float | None = None) -> dict[str, Any]:
+    now = time.time() if now is None else now
+    rows = conn.execute(
+        """SELECT effect FROM player_gifts
+           WHERE receiver_id = ? AND kind = 'boost' AND status = 'active'
+             AND expires_at > ? ORDER BY activated_at""",
+        (player_id, now),
+    ).fetchall()
+    effects = [str(item["effect"]) for item in rows]
+    return {
+        "active_count": len(effects),
+        "tap_double": "tap_double" in effects,
+        "tap_plus_5": 5 if "tap_plus_5" in effects else 0,
+        "income_10": 1.10 if "income_10" in effects else 1.0,
+        "passive_double": "passive_double" in effects,
+        "effects": effects,
+    }
+
+
+def gift_state(conn: sqlite3.Connection, player_id: str, era: int) -> dict[str, Any]:
+    now = time.time()
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    limit = GIFT_DAILY_LIMITS.get(era, 20)
+    sent_today = conn.execute(
+        "SELECT COUNT(*) AS total FROM player_gifts WHERE sender_id = ? AND created_at >= ?",
+        (player_id, day_start),
+    ).fetchone()
+    active_gift_effects(conn, player_id, now)
+    conn.execute(
+        "UPDATE player_gifts SET status = 'expired' WHERE receiver_id = ? AND status = 'active' AND expires_at <= ?",
+        (player_id, now),
+    )
+    items = conn.execute(
+        """SELECT g.*, p.nickname AS sender_nickname
+           FROM player_gifts g JOIN players p ON p.id = g.sender_id
+           WHERE g.receiver_id = ? ORDER BY g.created_at DESC LIMIT 60""",
+        (player_id,),
+    ).fetchall()
+    inventory = []
+    for item in items:
+        catalog = GIFT_CATALOG.get(str(item["gift_code"]), {})
+        expires = float(item["expires_at"] or 0)
+        inventory.append({
+            "id": str(item["id"]), "code": str(item["gift_code"]),
+            "title": catalog.get("title", str(item["gift_code"])),
+            "icon": catalog.get("icon", "🎁"), "description": catalog.get("description", ""),
+            "kind": str(item["kind"]), "rarity": str(item["rarity"]),
+            "status": str(item["status"]), "sender": str(item["sender_nickname"]),
+            "note": str(item["note"] or ""),
+            "remaining_seconds": max(0, int(expires - now)) if item["status"] == "active" else 0,
+            "can_activate": item["kind"] == "boost" and item["status"] == "inventory",
+        })
+    active = active_gift_effects(conn, player_id, now)
+    return {
+        "daily_limit": limit, "sent_today": int(sent_today["total"] or 0),
+        "remaining_today": max(0, limit - int(sent_today["total"] or 0)),
+        "active_boosts": active["active_count"], "max_active_boosts": 2,
+        "effects": active["effects"], "inventory": inventory,
+        "catalog": [
+            {"code": code, **{key: value for key, value in item.items() if key not in {"effect", "duration"}}}
+            for code, item in GIFT_CATALOG.items()
         ],
     }
 
@@ -823,6 +920,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
     winter_state = winter_event_state(conn, row) if conn is not None else None
     achievements = achievement_state(conn, row) if conn is not None else []
     referrals = referral_state(conn, row["id"]) if conn is not None else None
+    gifts = gift_state(conn, row["id"], int(row["active_era"])) if conn is not None else None
     upgrades = []
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
@@ -896,6 +994,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
         "winter_event": winter_state,
         "achievements": achievements,
         "referrals": referrals,
+        "gifts": gifts,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -968,6 +1067,89 @@ def state():
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/gifts/send")
+def send_gift():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    if not getattr(g, "telegram_user", None):
+        return api_error("Отправка подарков доступна после входа через Telegram.", 401)
+    payload = request.get_json(silent=True) or {}
+    recipient_code = str(payload.get("recipient_code", "")).strip()
+    gift_code = str(payload.get("gift_code", "")).strip()
+    note = " ".join(str(payload.get("note", "")).split())[:120]
+    gift = GIFT_CATALOG.get(gift_code)
+    if len(recipient_code) > 64 or not recipient_code or not gift:
+        return api_error("Проверь код друга и выбери подарок.")
+    player_id = get_player_id()
+    now = time.time()
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        sender = ensure_player(conn, player_id)
+        recipient = conn.execute(
+            """SELECT p.id FROM referral_codes r
+               JOIN players p ON p.id = r.player_id
+               JOIN telegram_accounts t ON t.player_id = p.id
+               WHERE r.code = ?""",
+            (recipient_code,),
+        ).fetchone()
+        if recipient is None:
+            return jsonify({"ok": False, "error": "Друг не найден. Нужен код игрока, который уже открыл игру через Telegram.", "state": make_state(sender, conn)}), 404
+        receiver_id = str(recipient["id"])
+        if receiver_id == player_id:
+            return jsonify({"ok": False, "error": "Нельзя отправить подарок самому себе.", "state": make_state(sender, conn)}), 409
+        limit = GIFT_DAILY_LIMITS.get(int(sender["active_era"]), 20)
+        sent = conn.execute(
+            "SELECT COUNT(*) AS total FROM player_gifts WHERE sender_id = ? AND created_at >= ?",
+            (player_id, day_start),
+        ).fetchone()
+        if int(sent["total"] or 0) >= limit:
+            return jsonify({"ok": False, "error": f"Лимит эпохи: {limit} подарков в сутки.", "state": make_state(sender, conn)}), 429
+        gift_id = uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO player_gifts
+               (id, sender_id, receiver_id, gift_code, kind, rarity, effect,
+                duration_seconds, created_at, status, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inventory', ?)""",
+            (gift_id, player_id, receiver_id, gift_code, gift["kind"], gift["rarity"],
+             gift.get("effect"), int(gift.get("duration", 0)), now, note),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "state": result, "message": "Подарок отправлен!"})
+
+
+@app.post("/api/gifts/activate")
+def activate_gift():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    gift_id = str((request.get_json(silent=True) or {}).get("gift_id", ""))
+    if not gift_id or len(gift_id) > 64:
+        return api_error("Не выбран подарок.")
+    player_id = get_player_id()
+    now = time.time()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        gift = conn.execute(
+            "SELECT * FROM player_gifts WHERE id = ? AND receiver_id = ?",
+            (gift_id, player_id),
+        ).fetchone()
+        if gift is None or gift["kind"] != "boost" or gift["status"] != "inventory":
+            return jsonify({"ok": False, "error": "Этот подарок нельзя активировать.", "state": make_state(row, conn)}), 409
+        active = active_gift_effects(conn, player_id, now)
+        if active["active_count"] >= 2:
+            return jsonify({"ok": False, "error": "Уже активны два подарочных буста. Дождись окончания одного.", "state": make_state(row, conn)}), 409
+        duration = max(60, int(gift["duration_seconds"]))
+        conn.execute(
+            "UPDATE player_gifts SET status = 'active', activated_at = ?, expires_at = ? WHERE id = ? AND receiver_id = ? AND status = 'inventory'",
+            (now, now + duration, gift_id, player_id),
+        )
+        updated = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        result = make_state(updated, conn)
+    return jsonify({"ok": True, "state": result, "message": "Подарочный буст активирован!"})
 
 
 @app.post("/api/achievement/claim")
@@ -1080,8 +1262,9 @@ def click():
         accepted_count = min(requested_count, int(float(row["energy"])))
         if accepted_count < 1:
             return jsonify({"ok": False, "error": "Энергия закончилась", "state": make_state(row, conn)}), 409
-        multiplier = 2 if float(row["turbo_until"]) > time.time() else 1
-        reward = tap_power(row) * accepted_count * multiplier
+        gift_effects = active_gift_effects(conn, player_id)
+        multiplier = (2 if float(row["turbo_until"]) > time.time() else 1) * (2 if gift_effects["tap_double"] else 1)
+        reward = int(round((tap_power(row) + gift_effects["tap_plus_5"]) * accepted_count * multiplier * gift_effects["income_10"]))
         conn.execute(
             """UPDATE players SET coins = coins + ?, total_earned = total_earned + ?,
                total_taps = total_taps + ?, energy = energy - ? WHERE id = ?""",
