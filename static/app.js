@@ -113,6 +113,7 @@ async function openPublicProfile(code) {
     if (!data.ok) throw new Error(data.error || 'Профиль не найден.');
     const profile = data.profile;
     $('profileDialogAvatar').textContent = profile.avatar;
+    $('profileDialogAvatar').className = `creator-avatar profile-frame-${profile.frame}`;
     $('profileDialogTitle').textContent = profile.nickname;
     $('profileDialogEra').textContent = `Эпоха ${profile.era} · ${profile.frame} рамка`;
     const stats = $('profileDialogStats');
@@ -1011,6 +1012,8 @@ creatorDialog.addEventListener('click', (event) => {
   await refreshState();
   await refreshLeaderboard();
   await refreshShop();
+  const requestedProfile = new URLSearchParams(window.location.search).get('profile');
+  if (requestedProfile) await openPublicProfile(requestedProfile);
   setInterval(refreshState, 15000);
   setInterval(refreshLeaderboard, 45000);
 })();
