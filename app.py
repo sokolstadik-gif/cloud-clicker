@@ -1660,21 +1660,55 @@ def update_public_profile():
 @app.get("/api/leaderboard")
 def leaderboard():
     player_id = get_player_id()
+    sort = request.args.get("sort", "earned")
+    if sort not in {"earned", "taps", "invites", "achievements", "eras"}:
+        sort = "earned"
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         ensure_player(conn, player_id)
-        rows = conn.execute("SELECT id, nickname, total_earned, total_taps FROM players ORDER BY total_earned DESC, total_taps DESC LIMIT 10").fetchall()
-        for item in rows:
+        rows = conn.execute(
+            """SELECT p.id, p.nickname, p.total_earned, p.total_taps, p.active_era,
+               (SELECT COUNT(*) FROM referrals r WHERE r.inviter_id = p.id AND r.status = 'active') AS invites,
+               (SELECT COUNT(*) FROM player_achievement_claims a WHERE a.player_id = p.id) AS achievements
+               FROM players p"""
+        ).fetchall()
+        sort_keys = {
+            "earned": lambda item: (int(item["total_earned"]), int(item["total_taps"])),
+            "taps": lambda item: (int(item["total_taps"]), int(item["total_earned"])),
+            "invites": lambda item: (int(item["invites"]), int(item["total_earned"])),
+            "achievements": lambda item: (int(item["achievements"]), int(item["total_earned"])),
+            "eras": lambda item: (int(item["active_era"]), int(item["total_earned"])),
+        }
+        rows = sorted(rows, key=sort_keys[sort], reverse=True)
+        my_rank = next((index + 1 for index, item in enumerate(rows) if item["id"] == player_id), 1)
+        top_rows = rows[:10]
+        for item in top_rows:
             ensure_public_profile(conn, str(item["id"]))
-        my_rank = conn.execute("SELECT COUNT(*) + 1 AS rank FROM players WHERE total_earned > (SELECT total_earned FROM players WHERE id = ?)", (player_id,)).fetchone()["rank"]
         profiles = {
             item["player_id"]: item
             for item in conn.execute("SELECT player_id, public_code, avatar, frame FROM player_profiles").fetchall()
         }
-    return jsonify({"ok": True,
-        "leaders": [{"rank": i + 1, "nickname": row["nickname"], "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]), "you": row["id"] == player_id,
-                     "profile_code": profiles[row["id"]]["public_code"], "avatar": profiles[row["id"]]["avatar"], "frame": profiles[row["id"]]["frame"]} for i, row in enumerate(rows)],
-        "my_rank": int(my_rank)})
+    score_fields = {
+        "earned": ("total_earned", "монет"),
+        "taps": ("total_taps", "тапов"),
+        "invites": ("invites", "друзей"),
+        "achievements": ("achievements", "достижений"),
+        "eras": ("active_era", "эпоха"),
+    }
+    score_key, score_label = score_fields[sort]
+    leaders = []
+    for index, row in enumerate(top_rows):
+        profile = profiles[row["id"]]
+        leaders.append({
+            "rank": index + 1, "nickname": row["nickname"],
+            "total_earned": int(row["total_earned"]), "total_taps": int(row["total_taps"]),
+            "score": int(row[score_key]), "score_label": score_label,
+            "you": row["id"] == player_id, "profile_code": profile["public_code"],
+            "avatar": profile["avatar"], "frame": profile["frame"],
+        })
+    return jsonify({"ok": True, "sort": sort, "leaders": leaders, "my_rank": int(my_rank)})
+
+
 
 
 @app.get("/api/shop/packages")
