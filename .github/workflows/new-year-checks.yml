@@ -66,6 +66,11 @@ jobs:
           assert first["earned"] == 1234
           assert first["taps"] == 5000
           assert first["levels"]["tap"] == 2
+          achievement = client.post("/api/achievement/claim", json={"id": "taps_1000"}, headers={"X-CSRF-Token": csrf})
+          assert achievement.status_code == 200, achievement.get_data(as_text=True)
+          assert achievement.get_json()["reward"] == 500
+          duplicate_achievement = client.post("/api/achievement/claim", json={"id": "taps_1000"}, headers={"X-CSRF-Token": csrf})
+          assert duplicate_achievement.status_code == 409
           blocked = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
           assert blocked.status_code == 409
           print("SQLite migration, archive preservation, and era transition: OK")
