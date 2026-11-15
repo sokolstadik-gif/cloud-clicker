@@ -10,6 +10,7 @@
   <title>Cloud Clicker</title>
   <link rel="manifest" href="/static/manifest.json">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='5') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='winter.css', v='1') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -80,6 +81,12 @@
               <path d="M39 103c18 10 38 11 55 5" fill="none" stroke="#ffffff" stroke-opacity=".45" stroke-width="5" stroke-linecap="round"/>
               <path d="m184 18 4 9 9 4-9 4-4 9-4-9-9-4 9-4 4-9Z" fill="#b9e8ff"/>
               <circle cx="30" cy="39" r="4" fill="#8fd4fa"/>
+              <g class="santa-hat" transform="translate(77 0) rotate(-9 30 18)" aria-hidden="true">
+                <path d="M4 25C8 11 18 2 31 2c13 0 23 9 27 23H4Z" fill="#d94b55" stroke="#a92f3b" stroke-width="2"/>
+                <path d="M7 22c14 5 36 5 52 0l4 8c-17 7-43 7-60 0l4-8Z" fill="#fff8ed" stroke="#dcecf4" stroke-width="2"/>
+                <circle cx="58" cy="5" r="7" fill="#fff8ed" stroke="#dcecf4" stroke-width="2"/>
+                <path d="M15 17c7-8 15-12 24-12" fill="none" stroke="#f58a8d" stroke-width="3" stroke-linecap="round" opacity=".75"/>
+              </g>
             </svg>
             <span class="tap-hint">CLICK</span>
           </button>
