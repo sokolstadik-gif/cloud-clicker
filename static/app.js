@@ -82,7 +82,7 @@ function renderEra(state) {
   (era.archive || []).forEach((item) => {
     const entry = document.createElement('span');
     entry.className = 'era-archive-item';
-    entry.textContent = `${item.name}: ${fmt.format(item.earned)} ${item.currency} · ${fmt.format(item.taps)} тапов`;
+    entry.textContent = `${item.name}: баланс ${fmt.format(item.balance)} ${item.currency} · заработано ${fmt.format(item.earned)} · ${fmt.format(item.taps)} тапов · улучшений ${fmt.format(item.upgrade_purchases)}`;
     archive.append(entry);
   });
 }
