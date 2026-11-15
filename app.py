@@ -1004,7 +1004,7 @@ def profile_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         "public_code": str(profile["public_code"]),
         "avatar": str(profile["avatar"]),
         "frame": str(profile["frame"]),
-        "url": f"/api/profile/{profile['public_code']}",
+        "url": f"/?profile={profile['public_code']}",
         "avatars": PROFILE_AVATARS,
         "frames": sorted(PROFILE_FRAMES.keys()),
     }
