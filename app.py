@@ -770,6 +770,9 @@ def achievement_state(conn: sqlite3.Connection, row: sqlite3.Row) -> list[dict[s
 def register_referral(conn: sqlite3.Connection, invitee_id: str, code: str | None) -> None:
     if not code or len(code) > 64:
         return
+    invitee = conn.execute("SELECT created_at FROM players WHERE id = ?", (invitee_id,)).fetchone()
+    if not invitee or time.time() - float(invitee["created_at"]) > 600:
+        return
     inviter = conn.execute("SELECT player_id FROM referral_codes WHERE code = ?", (code,)).fetchone()
     if not inviter:
         return
