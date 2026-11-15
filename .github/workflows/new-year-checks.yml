@@ -76,6 +76,10 @@ jobs:
           profile_update = client.post("/api/profile/update", json={"avatar": "🌌", "frame": "cosmic"}, headers={"X-CSRF-Token": csrf})
           assert profile_update.status_code == 200, profile_update.get_data(as_text=True)
           assert profile_update.get_json()["state"]["profile"]["frame"] == "cosmic"
+          for category in ["earned", "taps", "invites", "achievements", "eras"]:
+              board = client.get("/api/leaderboard?sort=" + category)
+              assert board.status_code == 200
+              assert board.get_json()["sort"] == category
           with app.db_connection() as conn:
               conn.execute("UPDATE winter_event_players SET tickets = 1000 WHERE player_id = ?", (player_id,))
           cosmetic = client.post("/api/winter/shop/purchase", json={"item_code": "era1_santa_hat"}, headers={"X-CSRF-Token": csrf})
@@ -112,6 +116,24 @@ jobs:
           tap = client.post("/api/click", json={"count": 1}, headers={"X-CSRF-Token": csrf})
           assert tap.status_code == 200, tap.get_data(as_text=True)
           assert tap.get_json()["earned"] == 7
+          app.validate_telegram_init_data = lambda raw: {"id": 9000000000002, "username": "sender", "first_name": "Sender", "last_name": ""}
+          with app.db_connection() as conn:
+              conn.execute(
+                  "INSERT OR IGNORE INTO telegram_accounts (telegram_id, player_id, username, first_name, last_name, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, 0, 0)",
+                  ("9000000000001", "f" * 32, "friend", "Friend", "",),
+              )
+              conn.execute(
+                  "INSERT OR IGNORE INTO referral_codes (player_id, code, created_at) VALUES (?, ?, 0)",
+                  ("f" * 32, "friendcode"),
+              )
+          sent_gift = client.post(
+              "/api/gifts/send", json={"recipient_code": "friendcode", "gift_code": "snowflake_charm", "note": "С праздником!"},
+              headers={"X-CSRF-Token": csrf, "X-Telegram-Init-Data": "test"},
+          )
+          assert sent_gift.status_code == 200, sent_gift.get_data(as_text=True)
+          with app.db_connection() as conn:
+              received = conn.execute("SELECT status FROM player_gifts WHERE receiver_id = ? AND sender_id = ?", ("f" * 32, player_id)).fetchone()
+              assert received["status"] == "collected"
           blocked = client.post("/api/era/transition", json={}, headers={"X-CSRF-Token": csrf})
           assert blocked.status_code == 409
           print("SQLite migration, era archive, winter calendar, achievements, and gift boost rules: OK")
