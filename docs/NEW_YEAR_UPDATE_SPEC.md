@@ -6,7 +6,7 @@ Release only after implementation, migration checks, automated tests, and Telegr
 ## Existing player data
 - Preserve player IDs, balances, lifetime earnings, lifetime taps, upgrade levels, daily claims, and leaderboard history.
 - Do not reinterpret existing lifetime counters as per-era counters.
-- New per-era counters start at zero for era 1 only if a safe backfill cannot be derived; document any backfill decision before migration.
+- Legacy players predate the era system, so their existing progress is safely attributed to era 1 during additive backfill: current balance, lifetime-earned total, lifetime taps, and upgrade levels are copied into the era-1 archive/progress row. Original lifetime columns remain unchanged and continue to mean lifetime totals; all later per-era counters are tracked independently.
 - Era transitions are irreversible. Previous era state remains archived and read-only.
 
 ## Eras
