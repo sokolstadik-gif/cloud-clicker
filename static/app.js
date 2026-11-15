@@ -87,6 +87,70 @@ function renderEra(state) {
   });
 }
 
+function renderProfile(state) {
+  const profile = state.profile;
+  if (!profile) return;
+  $('profileAvatar').value = profile.avatar;
+  $('profileFrame').value = profile.frame;
+  $('publicProfileLink').value = `${window.location.origin}${profile.url}`;
+}
+
+async function saveProfile() {
+  try {
+    const data = await api('/api/profile/update', 'POST', {
+      avatar: $('profileAvatar').value,
+      frame: $('profileFrame').value,
+    });
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast('Оформление профиля сохранено!');
+    else showToast(data.error || 'Не удалось сохранить профиль.');
+  } catch (error) { showToast(error.message); }
+}
+
+async function openPublicProfile(code) {
+  try {
+    const data = await api(`/api/profile/${encodeURIComponent(code)}`);
+    if (!data.ok) throw new Error(data.error || 'Профиль не найден.');
+    const profile = data.profile;
+    $('profileDialogAvatar').textContent = profile.avatar;
+    $('profileDialogTitle').textContent = profile.nickname;
+    $('profileDialogEra').textContent = `Эпоха ${profile.era} · ${profile.frame} рамка`;
+    const stats = $('profileDialogStats');
+    stats.replaceChildren();
+    [
+      [`Заработано ${fmt.format(profile.total_earned)}`, 'монет'],
+      [`Тапы ${fmt.format(profile.total_taps)}`, 'нажатий'],
+      [`Достижения ${profile.achievements.length}`, 'открыто'],
+    ].forEach(([value, label]) => {
+      const item = document.createElement('div');
+      const strong = document.createElement('b');
+      strong.textContent = value;
+      const small = document.createElement('small');
+      small.textContent = label;
+      item.append(strong, small);
+      stats.append(item);
+    });
+    const collection = $('profileDialogCollection');
+    collection.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = 'Коллекция и достижения';
+    collection.append(heading);
+    [...profile.achievements.map(item => `${item.badge} ${item.title}`),
+      ...profile.cosmetics.map(code => `🎨 ${code}`),
+      ...profile.gifts.map(item => `${item.icon} ${item.title}`)].forEach((value) => {
+      const line = document.createElement('p');
+      line.textContent = value;
+      collection.append(line);
+    });
+    if (collection.children.length === 1) {
+      const empty = document.createElement('p');
+      empty.textContent = 'Пока коллекция пуста.';
+      collection.append(empty);
+    }
+    $('profileDialog').showModal();
+  } catch (error) { showToast(error.message); }
+}
+
 function renderReferrals(state) {
   const data = state.referrals;
   if (!data) return;
@@ -264,6 +328,7 @@ function renderState(state) {
   renderWinterEvent(state);
   renderGifts(state);
   renderReferrals(state);
+  renderProfile(state);
   $('coins').textContent = fmt.format(state.coins);
   $('tapPower').textContent = `+${fmt.format(state.tap_power)}`;
   $('passiveIncome').textContent = `+${fmt.format(state.passive_per_sec)}`;
@@ -630,7 +695,12 @@ async function refreshLeaderboard() {
       const score = document.createElement('strong');
       score.className = 'leader-score';
       score.textContent = `${fmt.format(player.total_earned)} CC`;
-      row.append(rank, name, score);
+      const profileButton = document.createElement('button');
+      profileButton.type = 'button';
+      profileButton.className = 'leader-profile-button';
+      profileButton.textContent = 'Профиль';
+      profileButton.addEventListener('click', () => openPublicProfile(player.profile_code));
+      row.append(rank, name, score, profileButton);
       root.append(row);
     });
   } catch (error) {
@@ -846,6 +916,17 @@ $('copyReferralBtn').addEventListener('click', async () => {
   }
 });
 $('giftSendForm').addEventListener('submit', sendGift);
+$('saveProfileBtn').addEventListener('click', saveProfile);
+$('copyProfileBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('publicProfileLink').value);
+    showToast('Ссылка на профиль скопирована!');
+  } catch {
+    $('publicProfileLink').select();
+    showToast('Выделил ссылку — скопируй её вручную.');
+  }
+});
+
 $('dailyBtn').addEventListener('click', claimDaily);
 $('saveNameBtn').addEventListener('click', saveNickname);
 $('nicknameInput').addEventListener('keydown', (event) => {
