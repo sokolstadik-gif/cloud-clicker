@@ -87,9 +87,55 @@ function renderEra(state) {
   });
 }
 
+function renderWinterEvent(state) {
+  const event = state.winter_event;
+  if (!event) return;
+  $('winterTicketCount').textContent = `🎟 ${fmt.format(event.tickets)} билетиков`;
+  const calendar = event.calendar || {};
+  const claimed = new Set(event.claimed_days || []);
+  const day = Number(calendar.day || 0);
+  if (calendar.finished) {
+    $('winterDayTitle').textContent = 'Календарь завершён';
+    $('winterDayDescription').textContent = 'Все 31 день события позади. Накопленные билетики остаются у тебя.';
+    $('winterClaimBtn').hidden = true;
+  } else if (!calendar.active) {
+    $('winterDayTitle').textContent = 'Скоро открытие';
+    $('winterDayDescription').textContent = 'Праздничный календарь ещё не начался.';
+    $('winterClaimBtn').hidden = true;
+  } else {
+    $('winterDayTitle').textContent = `День ${day} из 31`;
+    $('winterDayDescription').textContent = calendar.claimed_today
+      ? 'Сегодняшний подарок уже получен.'
+      : `Сегодня можно забрать ${fmt.format(calendar.today_reward)} билетиков. Пропущенный день сгорает.`;
+    $('winterClaimBtn').hidden = false;
+    $('winterClaimBtn').disabled = Boolean(calendar.claimed_today);
+    $('winterClaimBtn').textContent = calendar.claimed_today
+      ? 'Получено ✓'
+      : `Забрать +${fmt.format(calendar.today_reward)} 🎟`;
+  }
+  const root = $('winterDays');
+  root.replaceChildren();
+  for (let number = 1; number <= 31; number += 1) {
+    const tile = document.createElement('div');
+    const isClaimed = claimed.has(number);
+    const isCurrent = number === day && calendar.active && !isClaimed;
+    const isExpired = number < day && !isClaimed;
+    tile.className = `winter-day${isClaimed ? ' is-claimed' : isCurrent ? ' is-current' : isExpired ? ' is-expired' : ''}`;
+    const numberLabel = document.createElement('b');
+    numberLabel.textContent = String(number);
+    const rewardLabel = document.createElement('span');
+    rewardLabel.textContent = `+${fmt.format(10 + (number - 1) * 2)}`;
+    const status = document.createElement('small');
+    status.textContent = isClaimed ? 'Получено' : isExpired ? 'Пропущено' : isCurrent ? 'Сегодня' : 'Закрыто';
+    tile.append(numberLabel, rewardLabel, status);
+    root.append(tile);
+  }
+}
+
 function renderState(state) {
   currentState = state;
   renderEra(state);
+  renderWinterEvent(state);
   $('coins').textContent = fmt.format(state.coins);
   $('tapPower').textContent = `+${fmt.format(state.tap_power)}`;
   $('passiveIncome').textContent = `+${fmt.format(state.passive_per_sec)}`;
@@ -452,6 +498,18 @@ async function drainClicks() {
   }
 }
 
+async function claimWinterCalendar() {
+  $('winterClaimBtn').disabled = true;
+  try {
+    const data = await api('/api/winter/calendar/claim', 'POST', {});
+    if (data.state) renderState(data.state);
+    if (data.ok) showToast(`Новогодний подарок: +${fmt.format(data.reward)} билетиков!`);
+    else showToast(data.error || 'Не удалось получить подарок.');
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function transitionEra() {
   if (!currentState?.era?.progress?.unlocked) return;
   const confirmed = window.confirm('Переход необратим. Баланс и улучшения текущей эпохи сохранятся в архиве, а новая эпоха начнётся с нуля. Перейти?');
@@ -569,6 +627,7 @@ async function saveNickname() {
 
 function activateTab(name) {
   $('eraTransitionBtn').addEventListener('click', transitionEra);
+$('winterClaimBtn').addEventListener('click', claimWinterCalendar);
 document.querySelectorAll('.tab-button').forEach((button) => {
     const active = button.dataset.tab === name;
     button.classList.toggle('active', active);
