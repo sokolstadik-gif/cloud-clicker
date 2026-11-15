@@ -16,13 +16,15 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qsl
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, g, jsonify, render_template, request, session
 
-from new_year_rules import ERA_NAMES, era_unlock_progress
+from new_year_rules import (
+    ERA_NAMES, era_unlock_progress, winter_calendar_status, winter_ticket_reward,
+)
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -327,6 +329,22 @@ def init_db() -> None:
                  int(player["coins"]), int(player["total_taps"]), sum(levels.values()),
                  float(player["created_at"]), time.time()),
             )
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_event_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            event_start TEXT NOT NULL
+        )""")
+        conn.execute("INSERT OR IGNORE INTO winter_event_settings (id, event_start) VALUES (1, ?)", (current_utc_date(),))
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_event_players (
+            player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+            tickets INTEGER NOT NULL DEFAULT 0
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS winter_calendar_claims (
+            player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+            day_number INTEGER NOT NULL,
+            reward INTEGER NOT NULL,
+            claimed_at REAL NOT NULL,
+            PRIMARY KEY (player_id, day_number)
+        )""")
         conn.execute("UPDATE players SET nickname = 'Cloud' WHERE nickname = 'Хомяк'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_players_leaderboard ON players(total_earned DESC)")
 
@@ -661,9 +679,40 @@ def advance_player(conn: sqlite3.Connection, row: sqlite3.Row, now: float | None
     return updated
 
 
+def winter_event_state(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    conn.execute("INSERT OR IGNORE INTO winter_event_players (player_id, tickets) VALUES (?, 0)", (row["id"],))
+    settings = conn.execute("SELECT event_start FROM winter_event_settings WHERE id = 1").fetchone()
+    event_start = date.fromisoformat(str(settings["event_start"]))
+    today = date.fromisoformat(current_utc_date())
+    calendar = winter_calendar_status(event_start, today)
+    day_number = int(calendar["day"])
+    claim = conn.execute(
+        "SELECT reward FROM winter_calendar_claims WHERE player_id = ? AND day_number = ?",
+        (row["id"], day_number),
+    ).fetchone() if calendar["active"] else None
+    player = conn.execute("SELECT tickets FROM winter_event_players WHERE player_id = ?", (row["id"],)).fetchone()
+    return {
+        "start_date": event_start.isoformat(),
+        "calendar": {
+            **calendar,
+            "claimed_today": claim is not None,
+            "today_reward": winter_ticket_reward(day_number) if calendar["active"] else 0,
+        },
+        "tickets": int(player["tickets"]),
+        "claimed_days": [
+            int(item["day_number"])
+            for item in conn.execute(
+                "SELECT day_number FROM winter_calendar_claims WHERE player_id = ? ORDER BY day_number",
+                (row["id"],),
+            ).fetchall()
+        ],
+    }
+
+
 def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     levels = {key: int(row[column]) for key, column in LEVEL_COLUMNS.items()}
     era_overview = get_era_overview(conn, row) if conn is not None else None
+    winter_state = winter_event_state(conn, row) if conn is not None else None
     upgrades = []
     for upgrade_id, data in UPGRADES.items():
         level = levels[upgrade_id]
@@ -734,6 +783,7 @@ def make_state(row: sqlite3.Row, conn: sqlite3.Connection | None = None) -> dict
     return {
         "nickname": row["nickname"],
         "era": era_overview,
+        "winter_event": winter_state,
         "coins": int(row["coins"]),
         "total_earned": int(row["total_earned"]),
         "total_taps": total_taps,
@@ -801,6 +851,31 @@ def state():
         row = advance_player(conn, row)
         result = make_state(row, conn)
     return jsonify({"ok": True, "state": result})
+
+
+@app.post("/api/winter/calendar/claim")
+def claim_winter_calendar():
+    if not check_csrf():
+        return api_error("Обнови страницу и попробуй ещё раз.", 403)
+    player_id = get_player_id()
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = ensure_player(conn, player_id)
+        event = winter_event_state(conn, row)
+        calendar = event["calendar"]
+        if not calendar["active"]:
+            return jsonify({"ok": False, "error": "Новогодний календарь сейчас не активен.", "state": make_state(row, conn)}), 409
+        day_number = int(calendar["day"])
+        if calendar["claimed_today"]:
+            return jsonify({"ok": False, "error": "Подарок за сегодняшний день уже получен.", "state": make_state(row, conn)}), 409
+        reward = winter_ticket_reward(day_number)
+        conn.execute(
+            "INSERT INTO winter_calendar_claims (player_id, day_number, reward, claimed_at) VALUES (?, ?, ?, ?)",
+            (player_id, day_number, reward, time.time()),
+        )
+        conn.execute("UPDATE winter_event_players SET tickets = tickets + ? WHERE player_id = ?", (reward, player_id))
+        result = make_state(row, conn)
+    return jsonify({"ok": True, "reward": reward, "state": result})
 
 
 @app.post("/api/era/transition")
